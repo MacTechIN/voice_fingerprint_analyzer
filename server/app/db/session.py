@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 _repository: Optional[SpeakerRepository] = None
 _pool = None
 _backend: str = "uninitialized"
+_cohort = None  # Optional[CohortIndex]
 
 
 async def init(database_url: Optional[str]) -> SpeakerRepository:
@@ -44,11 +45,12 @@ async def init(database_url: Optional[str]) -> SpeakerRepository:
 
 async def close() -> None:
     """연결 풀을 정리한다. 종료 시 1회 호출."""
-    global _pool, _repository, _backend
+    global _pool, _repository, _backend, _cohort
     if _pool is not None:
         await _pool.close()
         _pool = None
     _repository = None
+    _cohort = None
     _backend = "uninitialized"
 
 
@@ -62,3 +64,38 @@ def get_repository() -> SpeakerRepository:
 def backend_name() -> str:
     """현재 저장소 백엔드 이름 — `/health`에 노출한다."""
     return _backend
+
+
+async def load_cohort(model: str, top_k: int):
+    """AS-Norm 임포스터 코호트를 메모리에 적재한다 (기동 시 1회).
+
+    코호트는 고정 크기이고 요청마다 전부 참조되므로, 매 검증마다 DB에서 읽는
+    대신 한 번 적재해 행렬 곱으로 처리한다.
+
+    코호트가 비어 있으면 None을 반환하고 호출부가 원시 코사인으로 폴백한다.
+    """
+    global _cohort
+    import numpy as np
+
+    from app.services.asnorm import CohortIndex
+
+    repo = get_repository()
+    entries = await repo.load_cohort(model)
+    if not entries:
+        logger.warning(
+            "모델 %s의 임포스터 코호트가 비어 있습니다. AS-Norm 없이 원시 코사인으로 "
+            "판정합니다 — 점수 편차 보정이 적용되지 않습니다.",
+            model,
+        )
+        _cohort = None
+        return None
+
+    matrix = np.asarray([e.embedding for e in entries], dtype=np.float32)
+    _cohort = CohortIndex(matrix, model=model, top_k=top_k)
+    logger.info("AS-Norm 코호트 적재 완료: %d개 (top_k=%d)", _cohort.size, top_k)
+    return _cohort
+
+
+def get_cohort():
+    """적재된 코호트. 없으면 None (AS-Norm 비활성)."""
+    return _cohort

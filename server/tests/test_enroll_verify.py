@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from app.config import get_settings
 from app.core.errors import ErrorCode
 
 from .conftest import SAMPLE_RATE, synth_speech, unique_user
@@ -93,7 +94,8 @@ def test_verify_same_audio_matches(client, fresh_storage, speech_wav_bytes):
     assert body["raw_cosine"] == pytest.approx(1.0, abs=1e-4)
     assert body["match_probability"] == pytest.approx(100.0, abs=0.5)
     assert body["compared_enrollments"] == 1
-    assert body["threshold"] == 0.25
+    # 임계값은 캘리브레이션으로 갱신되므로 값을 고정하지 않고 설정을 참조한다
+    assert body["threshold"] == pytest.approx(get_settings().match_threshold)
 
 
 def test_verify_different_source_scores_lower(client, fresh_storage):
@@ -189,9 +191,10 @@ def test_verification_is_audited(client, fresh_storage, speech_wav_bytes):
     assert ok.outcome == "verified"
     assert ok.is_verified is True
     assert ok.raw_cosine is not None
-    assert ok.threshold == 0.25
+    assert ok.threshold == pytest.approx(get_settings().match_threshold)
     assert ok.elapsed_ms is not None
-    # AS-Norm은 Phase 6 과제이므로 아직 비어 있어야 한다 — 가짜 값을 채우지 않는다
+    # 이 테스트는 코호트를 적재하지 않으므로 원시 코사인 폴백 경로다.
+    # AS-Norm이 적용된 경로의 로그는 test_verify_asnorm.py가 검증한다.
     assert ok.normalized_score is None
 
     missing = logs[1]

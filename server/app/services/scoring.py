@@ -20,6 +20,16 @@ class MatchResult:
     match_probability: float
     is_verified: bool
     threshold: float
+    normalized_score: float | None = None
+    """AS-Norm 정규화 점수. 코호트가 없으면 None."""
+
+    scoring_method: str = "raw_cosine"
+    """판정 근거가 된 점수 종류 (as_norm | raw_cosine)."""
+
+    @property
+    def decision_score(self) -> float:
+        """실제 판정에 쓰인 점수."""
+        return self.raw_cosine if self.normalized_score is None else self.normalized_score
 
 
 def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -70,6 +80,42 @@ def match(probe: list[float], reference: list[float], threshold: float) -> Match
     )
 
 
+def match_normalized(
+    probe: list[float],
+    reference: list[float],
+    *,
+    cohort,
+    threshold: float,
+) -> MatchResult:
+    """AS-Norm 정규화 점수로 1:1 판정한다.
+
+    정규화 점수는 코호트 기준 표준화 값이므로 원시 코사인과 척도가 다르다.
+    따라서 `threshold`는 AS-Norm 전용으로 캘리브레이션된 값이어야 하고,
+    `match_probability`도 정규화 점수 기준으로 산출한다.
+    """
+    raw = cosine_similarity(probe, reference)
+    normed = cohort.normalize(raw, reference, probe)
+    return MatchResult(
+        raw_cosine=raw,
+        normalized_score=normed,
+        match_probability=to_percentage_normalized(normed, threshold),
+        is_verified=normed >= threshold,
+        threshold=threshold,
+        scoring_method="as_norm",
+    )
+
+
+def to_percentage_normalized(score: float, threshold: float, *, span: float = 4.0) -> float:
+    """AS-Norm 점수를 0~100 척도로 변환한다.
+
+    정규화 점수는 코호트 표준편차 단위(z-score에 가까움)이므로 코사인처럼
+    [-1, 1]에 갇히지 않는다. 임계값을 50%에 맞추고, 그로부터 `span` 표준편차
+    떨어진 지점을 0%/100%로 잘라 표시한다. **확률이 아니다.**
+    """
+    delta = (score - threshold) / span
+    return max(0.0, min(100.0, 50.0 + 50.0 * delta))
+
+
 def match_best(probe: list[float], references: list[list[float]], threshold: float) -> MatchResult:
     """여러 등록 발화 중 가장 잘 맞는 것으로 판정한다.
 
@@ -82,4 +128,16 @@ def match_best(probe: list[float], references: list[list[float]], threshold: flo
     return max(
         (match(probe, ref, threshold) for ref in references),
         key=lambda r: r.raw_cosine,
+    )
+
+
+def match_best_normalized(
+    probe: list[float], references: list[list[float]], *, cohort, threshold: float
+) -> MatchResult:
+    """여러 등록 발화에 대해 AS-Norm 판정 후 최고 점수를 택한다."""
+    if not references:
+        raise ValueError("등록된 성문이 없습니다")
+    return max(
+        (match_normalized(probe, ref, cohort=cohort, threshold=threshold) for ref in references),
+        key=lambda r: r.decision_score,
     )

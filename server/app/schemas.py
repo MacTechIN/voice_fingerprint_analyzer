@@ -7,6 +7,8 @@ Phase B~D에서 `normalized_score`, `spoof_score` 등이 추가되므로 클라�
 
 from __future__ import annotations
 
+from typing import Optional
+
 from pydantic import BaseModel, Field
 
 
@@ -98,6 +100,16 @@ class VerifyResponse(BaseModel):
         ),
     )
     raw_cosine: float = Field(..., description="원시 코사인 유사도")
+    normalized_score: Optional[float] = Field(
+        None,
+        description=(
+            "AS-Norm 정규화 점수. 코호트가 없어 정규화를 적용하지 못하면 null. "
+            "원시 코사인과 척도가 다르므로 임계값을 공유하지 않는다."
+        ),
+    )
+    scoring_method: str = Field(
+        ..., description="판정 근거 점수 종류 (as_norm | raw_cosine)"
+    )
     threshold: float = Field(..., description="판정에 사용된 임계값")
     compared_enrollments: int = Field(..., description="대조한 등록 성문 수")
     audio: AudioInfo
@@ -112,3 +124,7 @@ class HealthResponse(BaseModel):
     models_loaded: bool
     storage: str = Field("unknown", description="저장소 백엔드 (postgres | memory)")
     storage_ok: bool = Field(False, description="저장소 접속 가능 여부")
+    asnorm_active: bool = Field(
+        False, description="AS-Norm 정규화가 실제로 적용되고 있는지 (코호트 적재 여부)"
+    )
+    cohort_size: int = Field(0, description="적재된 임포스터 코호트 크기")

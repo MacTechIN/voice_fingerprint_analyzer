@@ -1,6 +1,7 @@
 """API 라우트.
 
-Phase 2 범위: 성문 추출(`/extract`), 등록(`/enroll`), 1:1 검증(`/verify`).
+범위: 성문 추출(`/extract`), 등록(`/enroll`), 1:1 검증(`/verify`).
+검증은 AS-Norm 정규화 점수로 판정하며, 코호트가 없으면 원시 코사인으로 폴백한다.
 
 경로에 버전을 박아두는 이유는 검증 API가 이후 기능 보강이 예정된 확장 지점이기
 때문이다 (01 §2).
@@ -106,12 +107,15 @@ async def health(
     repo: SpeakerRepository = Depends(db_session.get_repository),
 ) -> HealthResponse:
     """서비스 생존, 모델 적재, 저장소 접속 상태."""
+    cohort = db_session.get_cohort()
     return HealthResponse(
         status="ok",
         model=settings.embedding_model,
         models_loaded=embedding_svc._classifier is not None,
         storage=db_session.backend_name(),
         storage_ok=await repo.health(),
+        asnorm_active=cohort is not None,
+        cohort_size=cohort.size if cohort else 0,
     )
 
 
@@ -203,11 +207,14 @@ async def verify(
     settings: Settings = Depends(get_settings),
     repo: SpeakerRepository = Depends(db_session.get_repository),
 ) -> VerifyResponse:
-    """업로드된 음성이 해당 사용자와 동일인인지 판정한다 (FR-05, FR-06).
+    """업로드된 음성이 해당 사용자와 동일인인지 판정한다 (FR-05, FR-06, FR-09).
 
-    Phase 2는 원시 코사인 유사도에 고정 임계값을 적용한다. 02 §4.2가 지적하듯
-    이 방식은 점수 편차 때문에 실무 실패율이 높으므로, Phase 6에서 AS-Norm
-    정규화가 필수 경로로 들어간다.
+    임포스터 코호트가 적재되어 있으면 AS-Norm 정규화 점수로 판정한다. 원시
+    코사인에 고정 임계값을 적용하는 방식은 화자 상태·발화 길이·잔존 소음에 따라
+    점수 편차가 커서 실무 실패율이 높다 (02 §4.2).
+
+    코호트가 없으면 원시 코사인으로 폴백하되, `scoring_method` 필드와 `/health`의
+    `asnorm_active`에 그 사실을 드러낸다.
     """
     started = time.perf_counter()
     client_ip = request.client.host if request.client else None
@@ -270,13 +277,22 @@ async def verify(
             user_id=user_id,
         )
 
-    result = scoring.match_best(
-        probe.vector, [e.embedding for e in usable], settings.match_threshold
-    )
+    # AS-Norm이 가능하면 정규화 점수로 판정하고, 코호트가 없으면 원시 코사인으로
+    # 폴백한다. 폴백 사실은 응답의 scoring_method와 /health에 드러나므로 정규화가
+    # 꺼진 채 운영되는 것을 모르고 지나치지 않는다.
+    cohort = db_session.get_cohort() if settings.asnorm_enabled else None
+    references = [e.embedding for e in usable]
+    if cohort is not None:
+        result = scoring.match_best_normalized(
+            probe.vector, references, cohort=cohort, threshold=settings.asnorm_threshold
+        )
+    else:
+        result = scoring.match_best(probe.vector, references, settings.match_threshold)
 
     await _log(
         "verified" if result.is_verified else "rejected",
         raw_cosine=result.raw_cosine,
+        normalized_score=result.normalized_score,
         match_probability=result.match_probability,
         is_verified=result.is_verified,
         threshold=result.threshold,
@@ -284,10 +300,12 @@ async def verify(
         speech_duration_sec=analyzed.speech_duration_sec,
     )
     logger.info(
-        "성문 검증: user_id=%s verified=%s cosine=%.4f",
+        "성문 검증: user_id=%s verified=%s method=%s cosine=%.4f normalized=%s",
         user_id,
         result.is_verified,
+        result.scoring_method,
         result.raw_cosine,
+        f"{result.normalized_score:.4f}" if result.normalized_score is not None else "-",
     )
 
     return VerifyResponse(
@@ -295,6 +313,10 @@ async def verify(
         is_verified=result.is_verified,
         match_probability=round(result.match_probability, 1),
         raw_cosine=round(result.raw_cosine, 6),
+        normalized_score=(
+            round(result.normalized_score, 6) if result.normalized_score is not None else None
+        ),
+        scoring_method=result.scoring_method,
         threshold=result.threshold,
         compared_enrollments=len(usable),
         audio=analyzed.audio,

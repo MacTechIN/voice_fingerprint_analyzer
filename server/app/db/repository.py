@@ -33,6 +33,16 @@ class Enrollment:
     created_at: datetime
 
 
+@dataclass(frozen=True)
+class CohortEntry:
+    """임포스터 코호트 항목."""
+
+    id: int
+    embedding: list[float]
+    model: str
+    speaker_ref: Optional[str]
+
+
 @dataclass
 class VerificationLog:
     """검증 시도 감사 로그 (03 오딧 트레일)."""
@@ -84,6 +94,23 @@ class SpeakerRepository(ABC):
         """검증 시도를 기록한다. 실패해도 검증 응답을 막지 않는다."""
 
     @abstractmethod
+    async def add_cohort_entries(
+        self, entries: list[tuple[list[float], str, Optional[str]]], *, source: str
+    ) -> int:
+        """임포스터 코호트를 일괄 적재하고 삽입 건수를 반환한다.
+
+        entries: (embedding, model, speaker_ref) 튜플 목록.
+        """
+
+    @abstractmethod
+    async def load_cohort(self, model: str) -> list[CohortEntry]:
+        """해당 모델의 코호트 전체를 읽는다. 기동 시 1회 호출한다."""
+
+    @abstractmethod
+    async def clear_cohort(self, model: str) -> int:
+        """해당 모델의 코호트를 비운다 (재구축용)."""
+
+    @abstractmethod
     async def health(self) -> bool:
         """저장소 접속 가능 여부."""
 
@@ -98,6 +125,7 @@ class InMemoryRepository(SpeakerRepository):
     def __init__(self) -> None:
         self._rows: list[dict] = []
         self._logs: list[VerificationLog] = []
+        self._cohort: list[CohortEntry] = []
         self._next_id = 1
 
     async def add_enrollment(
@@ -142,6 +170,28 @@ class InMemoryRepository(SpeakerRepository):
 
     async def log_verification(self, log: VerificationLog) -> None:
         self._logs.append(log)
+
+    async def add_cohort_entries(
+        self, entries: list[tuple[list[float], str, Optional[str]]], *, source: str
+    ) -> int:
+        for embedding, model, speaker_ref in entries:
+            self._cohort.append(
+                CohortEntry(
+                    id=len(self._cohort) + 1,
+                    embedding=list(embedding),
+                    model=model,
+                    speaker_ref=speaker_ref,
+                )
+            )
+        return len(entries)
+
+    async def load_cohort(self, model: str) -> list[CohortEntry]:
+        return [c for c in self._cohort if c.model == model]
+
+    async def clear_cohort(self, model: str) -> int:
+        before = len(self._cohort)
+        self._cohort = [c for c in self._cohort if c.model != model]
+        return before - len(self._cohort)
 
     async def health(self) -> bool:
         return True
@@ -256,6 +306,46 @@ class PostgresRepository(SpeakerRepository):
             log.client_ip,
             log.elapsed_ms,
         )
+
+    async def add_cohort_entries(
+        self, entries: list[tuple[list[float], str, Optional[str]]], *, source: str
+    ) -> int:
+        if not entries:
+            return 0
+        # 수천 건을 한 건씩 INSERT하면 왕복 비용이 지배적이다
+        await self._pool.executemany(
+            """
+            INSERT INTO impostor_cohort (embedding, model, dim, source, speaker_ref)
+            VALUES ($1::vector, $2, $3, $4, $5)
+            """,
+            [
+                (_to_pgvector(emb), model, len(emb), source, ref)
+                for emb, model, ref in entries
+            ],
+        )
+        return len(entries)
+
+    async def load_cohort(self, model: str) -> list[CohortEntry]:
+        rows = await self._pool.fetch(
+            """
+            SELECT id, embedding::text AS embedding, model, speaker_ref
+            FROM impostor_cohort WHERE model = $1 ORDER BY id
+            """,
+            model,
+        )
+        return [
+            CohortEntry(
+                id=r["id"],
+                embedding=_from_pgvector(r["embedding"]),
+                model=r["model"],
+                speaker_ref=r["speaker_ref"],
+            )
+            for r in rows
+        ]
+
+    async def clear_cohort(self, model: str) -> int:
+        result = await self._pool.execute("DELETE FROM impostor_cohort WHERE model = $1", model)
+        return int(result.split()[-1]) if result else 0
 
     async def health(self) -> bool:
         try:

@@ -42,6 +42,11 @@ async def lifespan(app: FastAPI):
     # 즉시 실패하는 편이 낫다.
     await db_session.init(settings.database_url or None)
 
+    # AS-Norm 코호트 적재. 비어 있으면 원시 코사인으로 폴백하며, 그 사실은
+    # 경고 로그와 /health의 asnorm_active에 드러난다.
+    if settings.asnorm_enabled:
+        await db_session.load_cohort(settings.embedding_model, settings.asnorm_top_k)
+
     if settings.warmup_on_startup:
         logger.info("모델 워밍업 시작")
         try:
@@ -62,9 +67,10 @@ app = FastAPI(
     title="VoiceGuard Verification API",
     description=(
         "서버 집중형 화자 인증(성문 분석) API. "
-        "Phase 2 범위: VAD 전처리 + ECAPA-TDNN 임베딩 추출, 성문 등록·1:1 검증."
+        "Phase 6(캘리브레이션) 범위: VAD 전처리 + ECAPA-TDNN 임베딩, 성문 등록·1:1 검증, "
+        "AS-Norm 점수 정규화 및 EER 기반 임계값."
     ),
-    version="0.2.0",
+    version="0.3.0",
     lifespan=lifespan,
 )
 

@@ -50,12 +50,39 @@ class Settings(BaseSettings):
     """
 
     # --- 판정 (Phase 2) ---
-    match_threshold: float = 0.25
-    """동일인 판정 코사인 임계값.
+    match_threshold: float = 0.3333
+    """원시 코사인 판정 임계값 (AS-Norm 미적용 시 폴백 경로에서 사용).
 
-    SpeechBrain ECAPA-TDNN의 관례적 기본값이며 **본 시스템 데이터로 캘리브레이션한
-    값이 아니다.** 실제 운영 임계값은 Genuine/Impostor 분포를 모아 EER·minDCF로
-    결정해야 하고, 그것은 Phase 6 과제다 (06 Phase 6, 03 §4).
+    LibriSpeech dev-clean 40화자 2,400트라이얼의 EER 지점 (EER 1.67%).
+    이전 기본값 0.25는 관례값이었고, 같은 트라이얼에서 **FAR 6.67%**를 냈다 —
+    인증 시스템에서 100번 중 6~7번 타인을 통과시키는 수준이다.
+    """
+
+    # --- AS-Norm (Phase 6) ---
+    asnorm_enabled: bool = True
+    """AS-Norm 점수 정규화 사용 여부.
+
+    코호트가 비어 있으면 자동으로 비활성화되고 원시 코사인으로 판정한다.
+    그 사실은 `/health`의 `asnorm_active`에 드러난다 — 정규화가 꺼진 채로
+    운영되는 것을 모르고 지나치면 안 된다.
+    """
+
+    asnorm_top_k: int = 200
+    """코호트 상위 K개를 적응적으로 선택한다.
+
+    클수록 통계가 안정되지만 '가장 혼동하기 쉬운 임포스터'라는 적응적 성격이
+    옅어진다. 캘리브레이션에서 K=100/200/300의 EER이 1.25%로 동률이었고,
+    그중 minDCF가 가장 낮은(0.0317) K=200을 택했다. minDCF는 사칭 시도가 드문
+    실제 환경을 반영해 FAR에 더 큰 가중을 두므로 인증 시스템에 더 적합한 기준이다.
+    """
+
+    asnorm_threshold: float = 3.0033
+    """AS-Norm 정규화 점수의 판정 임계값 (K=200의 EER 지점, EER 1.25%).
+
+    정규화 점수는 코호트 기준 표준화 값이라 원시 코사인과 척도가 완전히 다르다
+    (코사인처럼 [-1,1]에 갇히지 않는다). 두 임계값을 서로 바꿔 쓰면 안 된다.
+
+    더 보수적인 운영(오수락 억제 우선)을 원하면 minDCF 지점인 4.2009를 쓴다.
     """
 
     enroll_replaces_existing: bool = True
