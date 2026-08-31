@@ -211,6 +211,9 @@ VG_DATABASE_URL="postgresql://..." .venv/bin/python -m eval.seed_cohort --replac
 | `VG_EMBEDDING_DIM` | `256` | 임베딩 차원 (백엔드와 반드시 일치) |
 | `VG_ONNX_INTRA_OP_THREADS` | `4` | ONNX 연산 내 스레드 (지연 ↔ 동시처리 트레이드오프) |
 | `VG_ENHANCE_ENABLED` | `false` | DeepFilterNet 소음 억제 (**측정상 EER 악화 — 기본 비활성**) |
+| `VG_SEPARATION_ENABLED` | `false` | 다중 화자 분리 (검증 경로 전용, 기본 비활성) |
+| `VG_SEPARATION_MODEL` | `speechbrain/sepformer-whamr16k` | 분리 모델 (16kHz) |
+| `VG_TORCH_NUM_THREADS` | `0` | PyTorch 스레드 수. 0이면 기본값 |
 | `VG_ENROLL_REPLACES_EXISTING` | `true` | 등록 시 기존 성문 비활성화 |
 | `VG_MIN_SPEECH_SEC` | `1.5` | 유효 발화 길이 하한 |
 | `VG_VAD_THRESHOLD` | `0.5` | Silero VAD 발화 확률 임계값 |
@@ -253,6 +256,8 @@ Postgres 두 구현을 **같은 계약 테스트**로 검증해 둘이 어긋나
   예외 처리용이다.
 - **상태 없는 단일 요청 처리**만 지원한다. 긴 오디오의 청크·세션 처리는
   [02 §2.4](../docs/02_Techincal_Sepcification.md)의 Phase 7 대상이다.
+- **다중 화자 분리는 CPU 비용이 크다.** 6초 오디오에 약 7초(RTF 1.2). 대화형
+  인증에는 부담이며, 2화자 고정 모델이라 3인 이상은 다루지 못한다.
 - **1:N 식별은 없다.** 1:1 검증만 지원하며, `user_id`로 좁힌 뒤 소수의 벡터만
   비교하므로 ANN 인덱스도 두지 않았다. 1:N을 도입하면 HNSW(`vector_cosine_ops`)를
   추가하고 유사도 계산을 SQL(`<=>`)로 옮긴다.
@@ -278,6 +283,29 @@ Postgres 두 구현을 **같은 계약 테스트**로 검증해 둘이 어긋나
 > 한계를 명시하는 `caveat` 필드를 함께 실어 보낸다.
 
 PostgreSQL 저장소에서만 동작한다(집계에 SQL 윈도우 함수·percentile을 쓴다).
+
+## 다중 화자 분리 (Phase 7)
+
+`VG_SEPARATION_ENABLED=true`로 켜면 검증 경로에서 혼합 오디오를 화자별로 분리한 뒤
+**등록 성문과 가장 잘 맞는 출력**을 골라 판정한다. 이렇게 하면 분리망의 출력 순서가
+매번 달라지는 순열 문제를 실용적으로 회피한다.
+
+실측 (LibriSpeech 16화자, 0dB SIR 2인 혼합 32트라이얼):
+
+| 조건 | EER |
+| :--- | ---: |
+| 깨끗 (상한) | 3.12% |
+| 혼합 (하한) | 15.62% |
+| **분리 + 선택** | **6.25%** |
+
+분리가 EER을 60% 개선하며, 깨끗한 조건과의 격차 3.12%p가 **분리 아티팩트로 잃는
+양**이다. 타겟 선택 정확도는 100%(평균 마진 0.492).
+
+응답의 `separation.selection_margin`이 작으면 어느 출력이 타겟인지 모호했다는
+뜻이므로 판정 신뢰도를 낮게 봐야 한다.
+
+> **기본 비활성인 이유:** 단일 화자 오디오에 분리를 걸면 아티팩트만 더하고
+> 추론 비용(RTF 1.2)이 크다. 다중 화자가 실제로 섞여 들어오는 배포에서만 켠다.
 
 ## 다음 단계
 

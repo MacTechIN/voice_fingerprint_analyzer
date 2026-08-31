@@ -20,6 +20,7 @@ from app.db import session as db_session
 from app.schemas import ErrorResponse
 from app.services import embedding as embedding_svc
 from app.services import enhance as enhance_svc
+from app.services import separation as separation_svc
 
 logging.basicConfig(
     level=logging.INFO,
@@ -39,6 +40,15 @@ async def lifespan(app: FastAPI):
     """
     settings = get_settings()
 
+    # PyTorch 스레드 수를 기동 시 한 번 고정한다. 추론이 워커 스레드에서 도는데
+    # 그 안에서 OpenMP 병렬 영역이 확장되지 않아 사실상 1스레드로 떨어지는
+    # 경우가 있고, 그러면 분리 추론이 4배 느려진다 (config 주석 참조).
+    if settings.torch_num_threads > 0:
+        import torch
+
+        torch.set_num_threads(settings.torch_num_threads)
+        logger.info("PyTorch 스레드 수 고정: %d", settings.torch_num_threads)
+
     # 저장소는 실패하면 기동을 중단한다. 모델 워밍업과 달리 저장소 없이는
     # 등록·검증이 아예 성립하지 않으므로, 반쯤 동작하는 서버를 띄우는 것보다
     # 즉시 실패하는 편이 낫다.
@@ -51,6 +61,11 @@ async def lifespan(app: FastAPI):
 
     if settings.warmup_on_startup:
         logger.info("모델 워밍업 시작")
+        if settings.separation_enabled:
+            try:
+                separation_svc.warmup(settings.separation_model, settings.model_cache_dir)
+            except Exception:
+                logger.exception("음성 분리 모델 적재 실패 — 첫 요청 시 재시도한다")
         if settings.enhance_enabled:
             try:
                 enhance_svc.warmup()

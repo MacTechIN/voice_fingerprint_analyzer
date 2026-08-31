@@ -47,6 +47,28 @@ class Settings(BaseSettings):
     소음 환경이 확인된 배포에서만 켠다.
     """
 
+    # --- 음성 분리 (Phase 7) ---
+    separation_enabled: bool = False
+    """다중 화자 분리 적용 여부.
+
+    **기본값이 비활성인 이유:** 분리는 공짜가 아니다. 단일 화자 오디오에
+    적용하면 아티팩트만 더하고(02 §4.3 임베딩 왜곡), 추론 비용도 크다.
+    다중 화자가 실제로 섞여 들어오는 배포에서만 켠다.
+
+    켜면 검증 경로에서만 동작한다 — 등록은 통제된 환경에서 단일 화자로 받는
+    것이 전제이므로 분리할 이유가 없다.
+    """
+
+    separation_model: str = "speechbrain/sepformer-whamr16k"
+    """분리 모델. 16kHz라 리샘플링 왕복이 없고 잡음·잔향 조건으로 학습됐다."""
+
+    separation_min_margin: float = 0.0
+    """타겟 선택 1등과 2등의 최소 유사도 차이.
+
+    차이가 이보다 작으면 어느 출력이 타겟인지 모호하다는 뜻이므로 경고를
+    남긴다. 0이면 검사하지 않는다.
+    """
+
     # --- 임베딩 ---
     embedding_backend: str = "wespeaker"
     """임베딩 백엔드: `speechbrain`(192차원) | `wespeaker`(ONNX, 256차원).
@@ -68,6 +90,18 @@ class Settings(BaseSettings):
     `VG_EMBEDDING_MODEL=speechbrain/spkrec-ecapa-voxceleb`, `VG_EMBEDDING_DIM=192`,
     그리고 아래 임계값을 SpeechBrain 캘리브레이션 값으로 되돌린다
     (원시 0.3333 / AS-Norm 3.0033).
+    """
+
+    torch_num_threads: int = 0
+    """PyTorch 연산 스레드 수. 0이면 기본값(코어 수)을 그대로 둔다.
+
+    **왜 명시가 필요한가:** 추론은 `anyio.to_thread`의 워커 스레드에서 도는데,
+    그 안에서 PyTorch의 OpenMP 병렬 영역이 제대로 확장되지 않아 사실상 1스레드로
+    동작하는 경우가 있다. 실측(6초 오디오, SepFormer 분리): 1스레드 28.7초 /
+    4스레드 10.9초 / 12스레드 7.4초. 서버에서 30초가 나오던 것이 이 때문이었다.
+
+    기동 시 한 번 설정하며 프로세스 전체에 적용된다. 동시 요청이 많은 배포에서는
+    요청 간에 코어를 나눠 쓰도록 줄이는 편이 나을 수 있다.
     """
 
     onnx_intra_op_threads: int = 4

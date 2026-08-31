@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 from dataclasses import dataclass
@@ -26,6 +27,7 @@ from app.schemas import (
     EnrollResponse,
     ExtractResponse,
     HealthResponse,
+    SeparationInfo,
     SpeechSegmentOut,
     VerifyResponse,
 )
@@ -33,6 +35,7 @@ from app.services import audio as audio_svc
 from app.services import embedding as embedding_svc
 from app.services import enhance as enhance_svc
 from app.services import scoring
+from app.services import separation as separation_svc
 from app.services import vad as vad_svc
 
 logger = logging.getLogger(__name__)
@@ -46,16 +49,70 @@ class _Analyzed:
     audio: AudioInfo
     embedding: embedding_svc.SpeakerEmbedding
     speech_duration_sec: float
+    separation: SeparationInfo | None = None
 
 
-def _analyze(raw: bytes, settings: Settings) -> _Analyzed:
-    """디코딩 → VAD → 임베딩. CPU 바운드이므로 워커 스레드에서 실행된다."""
+def _analyze(
+    raw: bytes,
+    settings: Settings,
+    *,
+    reference_embedding: list[float] | None = None,
+) -> _Analyzed:
+    """디코딩 → (분리) → (향상) → VAD → 임베딩.
+
+    CPU 바운드이므로 워커 스레드에서 실행된다.
+
+    `reference_embedding`이 주어지고 분리가 켜져 있으면, 혼합에서 그 화자에
+    해당하는 출력을 골라 이후 단계에 넘긴다 (Phase 7). 등록 성문이 없으면
+    분리해도 어느 출력이 타겟인지 알 수 없으므로 건너뛴다.
+    """
     decoded = audio_svc.decode(
         raw,
         target_rate=settings.target_sample_rate,
         max_sec=settings.max_audio_sec,
     )
     samples = decoded.samples
+    separation_info: SeparationInfo | None = None
+
+    if settings.separation_enabled and reference_embedding is not None:
+        # 분리를 가장 앞에 둔다. 겹친 화자를 먼저 떼어내야 이후의 향상·VAD·임베딩이
+        # 단일 화자를 대상으로 동작한다.
+        def _embed_source(source):
+            return embedding_svc.extract(
+                source,
+                model_name=settings.embedding_model,
+                cache_dir=settings.model_cache_dir,
+                backend=settings.embedding_backend,
+                onnx_threads=settings.onnx_intra_op_threads,
+            ).vector
+
+        result = separation_svc.extract_target(
+            samples,
+            reference_embedding,
+            embed_fn=_embed_source,
+            model_name=settings.separation_model,
+            cache_dir=settings.model_cache_dir,
+        )
+        samples = result.target
+        margin = result.selection_margin
+        if (
+            settings.separation_min_margin > 0
+            and margin is not None
+            and margin < settings.separation_min_margin
+        ):
+            logger.warning(
+                "타겟 선택이 모호합니다 (마진 %.4f < %.4f). 판정 신뢰도가 낮습니다.",
+                margin,
+                settings.separation_min_margin,
+            )
+        separation_info = SeparationInfo(
+            applied=True,
+            source_count=result.source_count,
+            target_index=result.target_index,
+            target_similarity=round(result.target_similarity, 6),
+            selection_margin=round(margin, 6) if margin is not None else None,
+        )
+
     if settings.enhance_enabled:
         # VAD 앞에 둔다. 소음을 먼저 걷어내야 VAD가 발화 구간을 더 정확히 잡는다.
         samples = enhance_svc.apply(samples, decoded.sample_rate)
@@ -90,6 +147,7 @@ def _analyze(raw: bytes, settings: Settings) -> _Analyzed:
         ),
         embedding=emb,
         speech_duration_sec=vad_result.speech_duration_sec,
+        separation=separation_info,
     )
 
 
@@ -124,6 +182,7 @@ async def health(
         storage_ok=await repo.health(),
         asnorm_active=cohort is not None,
         cohort_size=cohort.size if cohort else 0,
+        separation_active=settings.separation_enabled and separation_svc.is_loaded(),
         enhance_active=settings.enhance_enabled and enhance_svc.is_loaded(),
         embedding_backend=settings.embedding_backend,
     )
@@ -246,20 +305,12 @@ async def verify(
 
     raw = await _read_upload(file, settings)
 
-    try:
-        analyzed = await anyio.to_thread.run_sync(_analyze, raw, settings)
-    except AudioRejected as exc:
-        await _log("audio_rejected", error_code=exc.code.value)
-        raise
-
+    # 등록 성문을 먼저 읽는다. 분리를 켠 경우 혼합에서 어느 출력이 타겟인지
+    # 고르려면 등록 임베딩이 필요하기 때문이다 (Phase 7). 오디오 분석 전에
+    # 미등록·모델 불일치를 걸러내면 헛된 추론 비용도 아낀다.
     enrollments = await repo.list_active_enrollments(user_id)
     if not enrollments:
-        await _log(
-            "not_enrolled",
-            error_code=ErrorCode.NOT_ENROLLED.value,
-            model=analyzed.embedding.model,
-            speech_duration_sec=analyzed.speech_duration_sec,
-        )
+        await _log("not_enrolled", error_code=ErrorCode.NOT_ENROLLED.value)
         raise AudioRejected(
             ErrorCode.NOT_ENROLLED,
             f"등록된 성문이 없습니다. 먼저 등록해주세요. (user_id={user_id})",
@@ -268,24 +319,41 @@ async def verify(
 
     # 모델이 다른 벡터끼리 비교하면 의미 없는 유사도가 나온다. 조용히 통과시키면
     # 그 값이 그대로 인증 판정에 쓰이므로 명시적으로 거부한다 (02 §6).
-    probe = analyzed.embedding
-    usable = [e for e in enrollments if e.model == probe.model and e.dim == probe.dim]
+    current_model = settings.embedding_model
+    usable = [
+        e
+        for e in enrollments
+        if e.model == current_model and e.dim == settings.embedding_dim
+    ]
     if not usable:
         stale = sorted({e.model for e in enrollments})
         await _log(
             "model_mismatch",
             error_code=ErrorCode.MODEL_MISMATCH.value,
-            model=probe.model,
-            speech_duration_sec=analyzed.speech_duration_sec,
+            model=current_model,
         )
         raise AudioRejected(
             ErrorCode.MODEL_MISMATCH,
             (
                 f"등록 성문이 현재 모델과 호환되지 않습니다. 재등록이 필요합니다. "
-                f"(등록={stale}, 현재={probe.model})"
+                f"(등록={stale}, 현재={current_model})"
             ),
             user_id=user_id,
         )
+
+    # 분리 시 타겟 선택 기준으로 쓸 등록 성문. 여러 개면 가장 최근 것을 쓴다
+    # (list_active_enrollments가 최신순으로 반환한다).
+    reference = usable[0].embedding if settings.separation_enabled else None
+
+    try:
+        analyzed = await anyio.to_thread.run_sync(
+            functools.partial(_analyze, raw, settings, reference_embedding=reference)
+        )
+    except AudioRejected as exc:
+        await _log("audio_rejected", error_code=exc.code.value)
+        raise
+
+    probe = analyzed.embedding
 
     # AS-Norm이 가능하면 정규화 점수로 판정하고, 코호트가 없으면 원시 코사인으로
     # 폴백한다. 폴백 사실은 응답의 scoring_method와 /health에 드러나므로 정규화가
@@ -329,6 +397,7 @@ async def verify(
         scoring_method=result.scoring_method,
         threshold=result.threshold,
         compared_enrollments=len(usable),
+        separation=analyzed.separation,
         audio=analyzed.audio,
         elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
     )

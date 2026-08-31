@@ -37,6 +37,22 @@ class AudioInfo(BaseModel):
     )
 
 
+class SeparationInfo(BaseModel):
+    """다중 화자 분리 결과 (Phase 7).
+
+    분리를 적용했을 때만 채워진다. 선택 마진이 작으면 어느 출력이 타겟인지
+    모호했다는 뜻이므로, 판정 신뢰도를 낮게 봐야 한다.
+    """
+
+    applied: bool = Field(..., description="분리를 적용했는지")
+    source_count: int = Field(0, description="분리된 화자 수")
+    target_index: int = Field(0, description="타겟으로 선택된 출력 번호")
+    target_similarity: float = Field(0.0, description="등록 성문과의 유사도")
+    selection_margin: Optional[float] = Field(
+        None, description="1등과 2등의 유사도 차이. 작으면 선택이 모호하다"
+    )
+
+
 class EmbeddingInfo(BaseModel):
     """임베딩과 그 출처.
 
@@ -110,6 +126,9 @@ class VerifyResponse(BaseModel):
     scoring_method: str = Field(
         ..., description="판정 근거 점수 종류 (as_norm | raw_cosine)"
     )
+    separation: Optional[SeparationInfo] = Field(
+        None, description="다중 화자 분리 결과. 분리를 적용하지 않았으면 null"
+    )
     threshold: float = Field(..., description="판정에 사용된 임계값")
     compared_enrollments: int = Field(..., description="대조한 등록 성문 수")
     audio: AudioInfo
@@ -127,6 +146,7 @@ class HealthResponse(BaseModel):
     asnorm_active: bool = Field(
         False, description="AS-Norm 정규화가 실제로 적용되고 있는지 (코호트 적재 여부)"
     )
+    separation_active: bool = Field(False, description="다중 화자 분리 적용 여부")
     cohort_size: int = Field(0, description="적재된 임포스터 코호트 크기")
     enhance_active: bool = Field(False, description="DeepFilterNet 소음 억제 적용 여부")
     embedding_backend: str = Field("unknown", description="임베딩 백엔드 (speechbrain | wespeaker)")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 
 import numpy as np
@@ -16,6 +17,22 @@ import torch
 from app.core.errors import AudioRejected, ErrorCode
 
 logger = logging.getLogger(__name__)
+
+
+@contextmanager
+def _preserve_torch_threads():
+    """블록 안에서 바뀐 torch 스레드 수를 되돌린다.
+
+    silero-vad가 프로세스 전역 설정을 건드리는 것을 격리하기 위한 장치다.
+    라이브러리가 전역 상태를 바꾸는 것은 우리가 고칠 수 없으므로, 경계에서
+    막는다.
+    """
+    before = torch.get_num_threads()
+    try:
+        yield
+    finally:
+        if torch.get_num_threads() != before:
+            torch.set_num_threads(before)
 
 _model = None
 _get_speech_timestamps = None
@@ -83,18 +100,23 @@ def apply(
     Raises:
         AudioRejected: 발화가 없거나 유효 발화 길이가 하한에 미달한 경우.
     """
-    _ensure_loaded()
     total_duration = len(samples) / sample_rate
 
-    timestamps = _get_speech_timestamps(
-        torch.from_numpy(samples),
-        _model,
-        sampling_rate=sample_rate,
-        threshold=threshold,
-        min_silence_duration_ms=min_silence_ms,
-        speech_pad_ms=speech_pad_ms,
-        return_seconds=False,
-    )
+    # silero-vad는 적재·실행 과정에서 torch.set_num_threads(1)을 호출해
+    # **프로세스 전체**를 단일 스레드로 낮춘다. VAD는 가벼워 스스로는 문제가
+    # 없지만, 같은 프로세스의 음성 분리 추론이 4배 느려진다(6초 오디오 기준
+    # 7.3초 → 28초). VAD 전후로 스레드 수를 보존한다.
+    with _preserve_torch_threads():
+        _ensure_loaded()
+        timestamps = _get_speech_timestamps(
+            torch.from_numpy(samples),
+            _model,
+            sampling_rate=sample_rate,
+            threshold=threshold,
+            min_silence_duration_ms=min_silence_ms,
+            speech_pad_ms=speech_pad_ms,
+            return_seconds=False,
+        )
 
     if not timestamps:
         raise AudioRejected(
