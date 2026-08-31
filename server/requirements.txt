@@ -25,6 +25,9 @@ deepfilternet==0.5.6
 # --- DB (Phase 2) ---
 asyncpg==0.30.0
 
+# 평가용 — ASVspoof parquet 읽기
+pyarrow==18.1.0
+
 # --- Test ---
 pytest==8.3.4
 pytest-asyncio==0.25.2

@@ -16,6 +16,13 @@ enum RejectionCode {
   notEnrolled('not_enrolled'),
   modelMismatch('model_mismatch'),
 
+  /// 합성 음성으로 판정되어 차단됨 (FR-16, FR-18).
+  ///
+  /// **탐지 상세를 화면에 노출하지 않는다.** 공격자가 점수나 사유를 보고 우회
+  /// 방법을 탐색하는 것을 막기 위해서다. 서버도 같은 이유로 점수를 응답에
+  /// 담지 않는다.
+  spoofDetected('spoof_detected'),
+
   /// 서버가 새 사유 코드를 추가했는데 앱이 아직 모르는 경우.
   ///
   /// 이 값이 있어야 앱이 서버 배포에 끌려다니지 않는다. 모르는 코드는
@@ -59,7 +66,10 @@ class ApiException implements Exception {
         RejectionCode.noSpeechDetected ||
         RejectionCode.speechTooShort ||
         RejectionCode.audioTooLong ||
-        RejectionCode.fileTooLarge =>
+        RejectionCode.fileTooLarge ||
+        // 정상 사용자가 오탐으로 걸렸을 수 있으므로 재시도 경로를 연다.
+        // 실제 공격자에게는 재시도가 무의미하다 — 같은 합성음은 또 걸린다.
+        RejectionCode.spoofDetected =>
           true,
         _ => false,
       };
@@ -78,6 +88,8 @@ class ApiException implements Exception {
         RejectionCode.audioTooLong || RejectionCode.fileTooLarge =>
           '녹음이 너무 깁니다. 짧게 다시 녹음해주세요.',
         RejectionCode.emptyFile => '녹음된 소리가 없습니다. 다시 시도해주세요.',
+        RejectionCode.spoofDetected =>
+          '녹음된 소리를 재생하지 말고, 마이크에 대고 직접 말씀해주세요.',
         RejectionCode.notEnrolled => '먼저 음성을 등록해주세요.',
         RejectionCode.modelMismatch =>
           '분석 모델이 갱신되어 기존 등록을 쓸 수 없습니다. 다시 등록해주세요.',

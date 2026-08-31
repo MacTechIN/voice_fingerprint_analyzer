@@ -259,6 +259,7 @@ async def attempts(
                 "is_verified": r.is_verified,
                 "raw_cosine": r.raw_cosine,
                 "normalized_score": r.normalized_score,
+                "spoof_score": r.spoof_score,
                 "match_probability": r.match_probability,
                 "threshold": r.threshold,
                 "model": r.model,
@@ -270,6 +271,33 @@ async def attempts(
             }
             for r in page.rows
         ],
+    }
+
+
+@router.get("/spoofing", dependencies=[Depends(require_admin)])
+async def spoofing(
+    settings: Settings = Depends(get_settings),
+    analytics: Analytics = Depends(get_analytics),
+) -> dict:
+    """스푸핑 차단 이력과 경보 (03 §5, FR-17)."""
+    summary = await analytics.spoof_summary()
+    return {
+        "active": settings.antispoof_enabled,
+        "threshold": settings.antispoof_threshold,
+        "total_blocked": summary.total_blocked,
+        "blocked_24h": summary.blocked_24h,
+        "distinct_ips": summary.distinct_ips,
+        "distinct_users": summary.distinct_users,
+        "top_ips": [{"client_ip": ip, "count": n} for ip, n in summary.top_ips],
+        "top_users": [{"user_id": u, "count": n} for u, n in summary.top_users],
+        "last_blocked_at": _iso(summary.last_blocked_at),
+        "mean_spoof_score": summary.mean_spoof_score,
+        "surge_alert": summary.is_surge,
+        "caveat": (
+            "차단 건수는 공격 시도 수의 하한이다. 탐지기를 통과한 위조는 여기 "
+            "잡히지 않으며, 그 비율은 오프라인 평가(eval/antispoof_eval.py)의 "
+            "EER로만 추정할 수 있다."
+        ),
     }
 
 
@@ -286,6 +314,9 @@ async def calibration(settings: Settings = Depends(get_settings)) -> dict:
 
     return {
         "active": {
+            "antispoof_enabled": settings.antispoof_enabled,
+            "antispoof_threshold": settings.antispoof_threshold,
+            "separation_enabled": settings.separation_enabled,
             "embedding_backend": settings.embedding_backend,
             "embedding_model": settings.embedding_model,
             "embedding_dim": settings.embedding_dim,

@@ -158,6 +158,7 @@ curl -X POST http://localhost:8000/api/v1/verify -F "user_id=alice" -F "file=@sp
 | `speech_too_short` | 유효 발화가 하한 미달 (기본 1.5초) |
 | `not_enrolled` | 검증 대상 사용자의 등록 성문 없음 |
 | `model_mismatch` | 등록 성문이 다른 모델 것 — 재등록 필요 |
+| `spoof_detected` | 합성 음성으로 판정되어 차단 (탐지 점수는 노출하지 않음) |
 
 `model_mismatch`는 조용히 넘기지 않는다. 모델이 다른 벡터끼리 비교하면 무의미한
 유사도가 나오고, 그 값이 그대로 인증 판정에 쓰이기 때문이다 (02 §6).
@@ -214,6 +215,9 @@ VG_DATABASE_URL="postgresql://..." .venv/bin/python -m eval.seed_cohort --replac
 | `VG_SEPARATION_ENABLED` | `false` | 다중 화자 분리 (검증 경로 전용, 기본 비활성) |
 | `VG_SEPARATION_MODEL` | `speechbrain/sepformer-whamr16k` | 분리 모델 (16kHz) |
 | `VG_TORCH_NUM_THREADS` | `0` | PyTorch 스레드 수. 0이면 기본값 |
+| `VG_ANTISPOOF_ENABLED` | `false` | 딥페이크 탐지 (**보안 배포에서는 반드시 켤 것**) |
+| `VG_ANTISPOOF_THRESHOLD` | `0.7` | spoof 확률 차단 임계값 |
+| `VG_ANTISPOOF_WEIGHTS` | `./.model_cache/AASIST-L.pth` | AASIST-L 가중치 경로 |
 | `VG_ENROLL_REPLACES_EXISTING` | `true` | 등록 시 기존 성문 비활성화 |
 | `VG_MIN_SPEECH_SEC` | `1.5` | 유효 발화 길이 하한 |
 | `VG_VAD_THRESHOLD` | `0.5` | Silero VAD 발화 확률 임계값 |
@@ -306,6 +310,36 @@ PostgreSQL 저장소에서만 동작한다(집계에 SQL 윈도우 함수·perce
 
 > **기본 비활성인 이유:** 단일 화자 오디오에 분리를 걸면 아티팩트만 더하고
 > 추론 비용(RTF 1.2)이 크다. 다중 화자가 실제로 섞여 들어오는 배포에서만 켠다.
+
+## 딥페이크 탐지 (Phase 8)
+
+TTS·보이스 컨버전 합성 음성이 화자 인증을 우회하는 공격을 막는다. **화자 인증과
+다른 문제를 푼다** — 잘 만든 합성 음성은 성문 검증을 그대로 통과하므로(그것이
+공격의 목적이다) 별도 방어가 필요하다.
+
+```bash
+# 가중치 내려받기 (MIT, 417KB)
+curl -L -o .model_cache/AASIST-L.pth --create-dirs \
+  https://github.com/clovaai/aasist/raw/main/models/weights/AASIST-L.pth
+
+export VG_ANTISPOOF_ENABLED=true
+```
+
+실측 (ASVspoof 2019 LA 검증 세트, bonafide 1,000 / spoof 1,000):
+
+| 임계값 | 위조 탐지 | 정상 차단 |
+| ---: | ---: | ---: |
+| 0.50 | 99.9% | 1.20% |
+| **0.70** (기본) | **99.9%** | **1.00%** |
+| 0.95 | 99.2% | 0.70% |
+
+**EER 0.70%.** 탐지는 파이프라인 최전단(분리·임베딩보다 앞)에서 수행하며, 차단
+시 클라이언트에는 **점수를 노출하지 않는다** — 공격자가 우회 방법을 탐색하는 것을
+막기 위해서다.
+
+> **⚠ 긴 오디오 주의:** 구간별 최댓값으로 집계하므로 구간이 많을수록 오탐이
+> 늘 수 있다. 평가 세트 평균이 3.5초(대부분 1구간)라 이 위험이 충분히 측정되지
+> 않았다. **배포 전 자사 오디오 길이 분포로 재측정할 것.**
 
 ## 다음 단계
 

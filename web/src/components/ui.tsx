@@ -111,6 +111,8 @@ export function outcomeTone(outcome: string): "neutral" | "good" | "warn" | "bad
       return "good";
     case "rejected":
       return "bad";
+    case "spoof_detected":
+      return "bad";
     case "audio_rejected":
     case "not_enrolled":
       return "warn";
@@ -125,6 +127,7 @@ export const OUTCOME_LABEL: Record<string, string> = {
   audio_rejected: "오디오 반려",
   not_enrolled: "미등록",
   model_mismatch: "모델 불일치",
+  spoof_detected: "합성 음성 차단",
 };
 
 export function formatMs(ms: number | null): string {

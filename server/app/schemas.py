@@ -37,6 +37,19 @@ class AudioInfo(BaseModel):
     )
 
 
+class SpoofInfo(BaseModel):
+    """딥페이크 탐지 결과 (Phase 8).
+
+    **관리자·감사용이다.** 클라이언트 앱에는 점수를 노출하지 않는다 — 공격자가
+    점수를 보고 우회 방법을 탐색하는 것을 막기 위해서다 (FR-18).
+    """
+
+    applied: bool = Field(..., description="탐지를 수행했는지")
+    spoof_score: float = Field(0.0, description="합성 음성일 확률 (0~1)")
+    threshold: float = Field(0.0, description="차단 임계값")
+    segments_scored: int = Field(0, description="점수를 낸 구간 수")
+
+
 class SeparationInfo(BaseModel):
     """다중 화자 분리 결과 (Phase 7).
 
@@ -129,6 +142,9 @@ class VerifyResponse(BaseModel):
     separation: Optional[SeparationInfo] = Field(
         None, description="다중 화자 분리 결과. 분리를 적용하지 않았으면 null"
     )
+    spoof: Optional[SpoofInfo] = Field(
+        None, description="딥페이크 탐지 결과. 탐지를 적용하지 않았으면 null"
+    )
     threshold: float = Field(..., description="판정에 사용된 임계값")
     compared_enrollments: int = Field(..., description="대조한 등록 성문 수")
     audio: AudioInfo
@@ -147,6 +163,7 @@ class HealthResponse(BaseModel):
         False, description="AS-Norm 정규화가 실제로 적용되고 있는지 (코호트 적재 여부)"
     )
     separation_active: bool = Field(False, description="다중 화자 분리 적용 여부")
+    antispoof_active: bool = Field(False, description="딥페이크 탐지 적용 여부")
     cohort_size: int = Field(0, description="적재된 임포스터 코호트 크기")
     enhance_active: bool = Field(False, description="DeepFilterNet 소음 억제 적용 여부")
     embedding_backend: str = Field("unknown", description="임베딩 백엔드 (speechbrain | wespeaker)")

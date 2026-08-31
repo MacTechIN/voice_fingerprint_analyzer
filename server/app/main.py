@@ -18,6 +18,7 @@ from app.config import get_settings
 from app.core.errors import AudioRejected
 from app.db import session as db_session
 from app.schemas import ErrorResponse
+from app.services import antispoof as antispoof_svc
 from app.services import embedding as embedding_svc
 from app.services import enhance as enhance_svc
 from app.services import separation as separation_svc
@@ -61,6 +62,14 @@ async def lifespan(app: FastAPI):
 
     if settings.warmup_on_startup:
         logger.info("모델 워밍업 시작")
+        if settings.antispoof_enabled:
+            try:
+                antispoof_svc.warmup(settings.antispoof_weights)
+            except Exception:
+                logger.exception(
+                    "딥페이크 탐지 모델 적재 실패 — 가중치 경로를 확인하세요: %s",
+                    settings.antispoof_weights,
+                )
         if settings.separation_enabled:
             try:
                 separation_svc.warmup(settings.separation_model, settings.model_cache_dir)

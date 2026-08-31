@@ -11,6 +11,7 @@ import type {
   Overview,
   ScoreDistribution,
   Speakers,
+  Spoofing,
   ThresholdImpact,
   TimeSeries,
 } from "./types";
@@ -73,4 +74,5 @@ export const api = {
   attempts: (limit = 50, offset = 0) =>
     get<Attempts>(`/attempts?limit=${limit}&offset=${offset}`),
   calibration: () => get<Calibration>("/calibration"),
+  spoofing: () => get<Spoofing>("/spoofing"),
 };

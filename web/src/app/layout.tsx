@@ -12,6 +12,7 @@ const NAV = [
   { href: "/", label: "대시보드" },
   { href: "/speakers", label: "화자 DB" },
   { href: "/attempts", label: "오딧 트레일" },
+  { href: "/spoofing", label: "스푸핑" },
   { href: "/calibration", label: "캘리브레이션" },
 ];
 

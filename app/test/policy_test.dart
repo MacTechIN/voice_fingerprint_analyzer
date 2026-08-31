@@ -118,6 +118,8 @@ void main() {
       expect(RejectionCode.fromWire('not_enrolled'), RejectionCode.notEnrolled);
       expect(RejectionCode.fromWire('model_mismatch'),
           RejectionCode.modelMismatch);
+      expect(RejectionCode.fromWire('spoof_detected'),
+          RejectionCode.spoofDetected);
     });
 
     test('모르는 코드는 unknown으로 떨어진다', () {
@@ -150,6 +152,18 @@ void main() {
               reason: '$code 에 대한 행동 안내가 있어야 한다');
         }
       }
+    });
+
+    test('합성 음성 차단은 직접 말하도록 안내한다', () {
+      const e = ApiException(
+          message: '실제 음성으로 확인되지 않았습니다.',
+          code: RejectionCode.spoofDetected);
+
+      // 탐지 점수나 모델 이름 같은 상세는 노출하지 않는다 (FR-18)
+      expect(e.actionHint, contains('직접'));
+      expect(e.actionHint, isNot(contains('점수')));
+      // 오탐일 수 있으므로 재시도 경로는 열어둔다
+      expect(e.isRetryableByReRecording, isTrue);
     });
 
     test('모델 불일치는 재등록을 안내한다', () {

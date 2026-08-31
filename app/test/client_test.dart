@@ -100,12 +100,14 @@ void main() {
     });
 
     test('앱이 모르는 새 사유 코드도 서버 문구를 살려 전달한다', () async {
+      // 서버가 앞으로 추가할 사유를 가정한다. 실재하는 코드를 쓰면 앱이 그 코드를
+      // 알게 된 순간 이 테스트가 의미를 잃는다 (실제로 spoof_detected가 그랬다).
       adapter.onPost(
         '/api/v1/verify',
         (server) => server.reply(422, {
           'status': 'error',
-          'code': 'spoof_detected',
-          'detail': '실제 음성 확인에 실패했습니다.',
+          'code': 'replay_attack_detected_v3',
+          'detail': '알 수 없는 이유로 거부되었습니다.',
         }),
         data: Matchers.any,
       );
@@ -114,7 +116,26 @@ void main() {
         api.verify(userId: 'alice', audio: audio),
         throwsA(isA<ApiException>()
             .having((e) => e.code, 'code', RejectionCode.unknown)
-            .having((e) => e.message, 'message', '실제 음성 확인에 실패했습니다.')),
+            .having((e) => e.message, 'message', '알 수 없는 이유로 거부되었습니다.')),
+      );
+    });
+
+    test('합성 음성 차단을 사유 코드로 구분한다', () async {
+      adapter.onPost(
+        '/api/v1/verify',
+        (server) => server.reply(422, {
+          'status': 'error',
+          'code': 'spoof_detected',
+          'detail': '실제 음성으로 확인되지 않았습니다. 직접 말씀해주세요.',
+        }),
+        data: Matchers.any,
+      );
+
+      await expectLater(
+        api.verify(userId: 'alice', audio: audio),
+        throwsA(isA<ApiException>()
+            .having((e) => e.code, 'code', RejectionCode.spoofDetected)
+            .having((e) => e.actionHint, 'actionHint', contains('직접'))),
       );
     });
 

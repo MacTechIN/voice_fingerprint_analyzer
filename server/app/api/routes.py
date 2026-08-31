@@ -28,9 +28,11 @@ from app.schemas import (
     ExtractResponse,
     HealthResponse,
     SeparationInfo,
+    SpoofInfo,
     SpeechSegmentOut,
     VerifyResponse,
 )
+from app.services import antispoof as antispoof_svc
 from app.services import audio as audio_svc
 from app.services import embedding as embedding_svc
 from app.services import enhance as enhance_svc
@@ -50,6 +52,7 @@ class _Analyzed:
     embedding: embedding_svc.SpeakerEmbedding
     speech_duration_sec: float
     separation: SeparationInfo | None = None
+    spoof: SpoofInfo | None = None
 
 
 def _analyze(
@@ -73,6 +76,33 @@ def _analyze(
     )
     samples = decoded.samples
     separation_info: SeparationInfo | None = None
+    spoof_info: SpoofInfo | None = None
+
+    # 딥페이크 탐지를 **가장 앞**에 둔다 (02 §5). 합성 음성이면 이후의 분리·
+    # 임베딩·대조가 모두 무의미하므로, 비싼 연산을 하기 전에 걸러낸다.
+    #
+    # 분리보다 앞인 이유: 분리는 원본에 없던 아티팩트를 만들어 탐지기를 혼란시킬
+    # 수 있다. 판정은 사용자가 실제로 보낸 신호를 대상으로 해야 한다.
+    if settings.antispoof_enabled:
+        spoof_result = antispoof_svc.detect(
+            samples,
+            weights_path=settings.antispoof_weights,
+            threshold=settings.antispoof_threshold,
+        )
+        spoof_info = SpoofInfo(
+            applied=True,
+            spoof_score=round(spoof_result.spoof_score, 6),
+            threshold=spoof_result.threshold,
+            segments_scored=spoof_result.segments_scored,
+        )
+        if spoof_result.is_spoof:
+            # 사용자에게는 점수를 알리지 않는다. 공격자가 점수를 보고 우회
+            # 방법을 탐색하는 것을 막기 위해서다 (FR-18).
+            raise AudioRejected(
+                ErrorCode.SPOOF_DETECTED,
+                "실제 음성으로 확인되지 않았습니다. 직접 말씀해주세요.",
+                spoof_score=spoof_result.spoof_score,
+            )
 
     if settings.separation_enabled and reference_embedding is not None:
         # 분리를 가장 앞에 둔다. 겹친 화자를 먼저 떼어내야 이후의 향상·VAD·임베딩이
@@ -148,6 +178,7 @@ def _analyze(
         embedding=emb,
         speech_duration_sec=vad_result.speech_duration_sec,
         separation=separation_info,
+        spoof=spoof_info,
     )
 
 
@@ -183,6 +214,7 @@ async def health(
         asnorm_active=cohort is not None,
         cohort_size=cohort.size if cohort else 0,
         separation_active=settings.separation_enabled and separation_svc.is_loaded(),
+        antispoof_active=settings.antispoof_enabled and antispoof_svc.is_loaded(),
         enhance_active=settings.enhance_enabled and enhance_svc.is_loaded(),
         embedding_backend=settings.embedding_backend,
     )
@@ -350,7 +382,16 @@ async def verify(
             functools.partial(_analyze, raw, settings, reference_embedding=reference)
         )
     except AudioRejected as exc:
-        await _log("audio_rejected", error_code=exc.code.value)
+        outcome = (
+            "spoof_detected"
+            if exc.code is ErrorCode.SPOOF_DETECTED
+            else "audio_rejected"
+        )
+        await _log(
+            outcome,
+            error_code=exc.code.value,
+            spoof_score=exc.context.get("spoof_score"),
+        )
         raise
 
     probe = analyzed.embedding
@@ -398,6 +439,7 @@ async def verify(
         threshold=result.threshold,
         compared_enrollments=len(usable),
         separation=analyzed.separation,
+        spoof=analyzed.spoof,
         audio=analyzed.audio,
         elapsed_ms=round((time.perf_counter() - started) * 1000, 1),
     )

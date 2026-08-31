@@ -53,6 +53,7 @@ export default async function AttemptsPage({
               <th className="px-2 py-2 font-medium">결과</th>
               <th className="px-2 py-2 text-right font-medium">원시 코사인</th>
               <th className="px-2 py-2 text-right font-medium">AS-Norm</th>
+              <th className="px-2 py-2 text-right font-medium">스푸핑</th>
               <th className="px-2 py-2 text-right font-medium">임계값</th>
               <th className="px-2 py-2 text-right font-medium">일치도</th>
               <th className="px-2 py-2 text-right font-medium">발화</th>
@@ -83,6 +84,21 @@ export default async function AttemptsPage({
                 <td className="px-2 py-2 text-right tabular-nums font-medium">
                   {formatScore(a.normalized_score, 4)}
                 </td>
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {a.spoof_score == null ? (
+                    "—"
+                  ) : (
+                    <span
+                      className={
+                        a.outcome === "spoof_detected"
+                          ? "font-semibold text-red-600"
+                          : "text-slate-500"
+                      }
+                    >
+                      {a.spoof_score.toFixed(3)}
+                    </span>
+                  )}
+                </td>
                 <td className="px-2 py-2 text-right tabular-nums text-slate-400">
                   {formatScore(a.threshold, 4)}
                 </td>
@@ -104,7 +120,7 @@ export default async function AttemptsPage({
             ))}
             {data.attempts.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-2 py-6 text-center text-slate-500">
+                <td colSpan={11} className="px-2 py-6 text-center text-slate-500">
                   검증 시도 기록이 없습니다.
                 </td>
               </tr>

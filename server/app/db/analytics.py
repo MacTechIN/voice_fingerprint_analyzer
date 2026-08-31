@@ -149,6 +149,30 @@ class SpeakerRow:
 
 
 @dataclass(frozen=True)
+class SpoofSummary:
+    """스푸핑 시도 요약 (03 §5, FR-17)."""
+
+    total_blocked: int
+    blocked_24h: int
+    distinct_ips: int
+    distinct_users: int
+    top_ips: list[tuple[str, int]]
+    top_users: list[tuple[str, int]]
+    last_blocked_at: Optional[datetime]
+    mean_spoof_score: Optional[float]
+
+    @property
+    def is_surge(self) -> bool:
+        """최근 24시간 차단이 전체의 절반을 넘으면 급증으로 본다.
+
+        절대 임계값 대신 상대 비율을 쓰는 이유: 서비스 규모를 모르는 채로
+        "몇 건 이상이면 경보"를 정할 수 없기 때문이다. 규모가 커지면 절대
+        임계값과 시간당 비율로 바꾸는 것이 맞다.
+        """
+        return self.total_blocked >= 5 and self.blocked_24h > self.total_blocked / 2
+
+
+@dataclass(frozen=True)
 class AttemptRow:
     """오딧 트레일 한 행 (03 §3)."""
 
@@ -158,6 +182,7 @@ class AttemptRow:
     is_verified: Optional[bool]
     raw_cosine: Optional[float]
     normalized_score: Optional[float]
+    spoof_score: Optional[float]
     match_probability: Optional[float]
     threshold: Optional[float]
     model: Optional[str]
@@ -432,6 +457,46 @@ class Analytics:
             for r in rows
         ]
 
+    async def spoof_summary(self, *, top: int = 5) -> SpoofSummary:
+        """차단된 스푸핑 시도 요약 (FR-17)."""
+        overall = await self._pool.fetchrow(
+            """
+            SELECT count(*) AS total,
+                   count(*) FILTER (WHERE created_at >= NOW() - interval '24 hours') AS recent,
+                   count(DISTINCT client_ip) AS ips,
+                   count(DISTINCT user_id) AS users,
+                   max(created_at) AS last_at,
+                   avg(spoof_score) AS avg_score
+            FROM verification_attempts WHERE outcome = 'spoof_detected'
+            """
+        )
+        ip_rows = await self._pool.fetch(
+            """
+            SELECT client_ip, count(*) AS n FROM verification_attempts
+            WHERE outcome = 'spoof_detected' AND client_ip IS NOT NULL
+            GROUP BY client_ip ORDER BY n DESC LIMIT $1
+            """,
+            top,
+        )
+        user_rows = await self._pool.fetch(
+            """
+            SELECT user_id, count(*) AS n FROM verification_attempts
+            WHERE outcome = 'spoof_detected'
+            GROUP BY user_id ORDER BY n DESC LIMIT $1
+            """,
+            top,
+        )
+        return SpoofSummary(
+            total_blocked=overall["total"] or 0,
+            blocked_24h=overall["recent"] or 0,
+            distinct_ips=overall["ips"] or 0,
+            distinct_users=overall["users"] or 0,
+            top_ips=[(r["client_ip"], r["n"]) for r in ip_rows],
+            top_users=[(r["user_id"], r["n"]) for r in user_rows],
+            last_blocked_at=overall["last_at"],
+            mean_spoof_score=_f(overall["avg_score"]),
+        )
+
     async def attempts(
         self,
         *,
@@ -456,8 +521,8 @@ class Analytics:
         rows = await self._pool.fetch(
             f"""
             SELECT id, user_id, outcome, is_verified, raw_cosine, normalized_score,
-                   match_probability, threshold, model, speech_duration_sec,
-                   error_code, client_ip, elapsed_ms, created_at
+                   spoof_score, match_probability, threshold, model,
+                   speech_duration_sec, error_code, client_ip, elapsed_ms, created_at
             FROM verification_attempts {where}
             ORDER BY id DESC LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}
             """,
@@ -472,6 +537,7 @@ class Analytics:
                     is_verified=r["is_verified"],
                     raw_cosine=_f(r["raw_cosine"]),
                     normalized_score=_f(r["normalized_score"]),
+                    spoof_score=_f(r["spoof_score"]),
                     match_probability=_f(r["match_probability"]),
                     threshold=_f(r["threshold"]),
                     model=r["model"],

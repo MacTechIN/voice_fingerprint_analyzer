@@ -14,6 +14,7 @@
 | 벡터 DB · 등록/검증 (Phase 2) | ✅ pgvector 저장 + 1:1 코사인 검증 | [server/](server/) |
 | AS-Norm · 캘리브레이션 (Phase 6) | ✅ EER 1.25% 실측, WeSpeaker ONNX 코어 | [server/eval/](server/eval/) |
 | 다중 화자 분리 (Phase 7) | ✅ 혼합 EER 15.6% → 6.3% (분리+타겟 선택) | [server/](server/) |
+| 딥페이크 탐지 (Phase 8) | ✅ AASIST-L, ASVspoof EER 0.70% | [server/](server/) |
 | Flutter 앱 (Phase 3) | ✅ 5개 OS 크로스플랫폼 클라이언트 | [app/](app/) |
 | 관리자 웹 (Phase 4) | ✅ 대시보드·화자DB·오딧트레일·캘리브레이션 | [web/](web/) |
 

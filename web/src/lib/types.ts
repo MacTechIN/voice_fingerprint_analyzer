@@ -104,6 +104,7 @@ export interface Attempt {
   speech_duration_sec: number | null;
   error_code: string | null;
   client_ip: string | null;
+  spoof_score: number | null;
   elapsed_ms: number | null;
   created_at: string;
 }
@@ -114,6 +115,22 @@ export interface Attempts {
   offset: number;
   has_more: boolean;
   attempts: Attempt[];
+}
+
+export interface Spoofing {
+  active: boolean;
+  threshold: number;
+  total_blocked: number;
+  blocked_24h: number;
+  distinct_ips: number;
+  distinct_users: number;
+  top_ips: { client_ip: string; count: number }[];
+  top_users: { user_id: string; count: number }[];
+  last_blocked_at: string | null;
+  mean_spoof_score: number | null;
+  /** 최근 차단이 급증했는지 — 공격 캠페인 신호일 수 있다. */
+  surge_alert: boolean;
+  caveat: string;
 }
 
 export interface CalibrationMetrics {

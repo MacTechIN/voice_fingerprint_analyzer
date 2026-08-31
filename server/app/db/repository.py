@@ -51,6 +51,7 @@ class VerificationLog:
     outcome: str
     raw_cosine: Optional[float] = None
     normalized_score: Optional[float] = None  # Phase 6 AS-Norm
+    spoof_score: Optional[float] = None  # Phase 8 딥페이크 탐지
     match_probability: Optional[float] = None
     is_verified: Optional[bool] = None
     threshold: Optional[float] = None
@@ -290,8 +291,8 @@ class PostgresRepository(SpeakerRepository):
             INSERT INTO verification_attempts
                 (user_id, raw_cosine, normalized_score, match_probability, is_verified,
                  threshold, model, speech_duration_sec, outcome, error_code,
-                 client_ip, elapsed_ms)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+                 client_ip, elapsed_ms, spoof_score)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
             """,
             log.user_id,
             log.raw_cosine,
@@ -305,6 +306,7 @@ class PostgresRepository(SpeakerRepository):
             log.error_code,
             log.client_ip,
             log.elapsed_ms,
+            log.spoof_score,
         )
 
     async def add_cohort_entries(

@@ -34,6 +34,13 @@ class ErrorCode(str, Enum):
     NOT_ENROLLED = "not_enrolled"
     """검증 대상 사용자의 등록 성문이 없음 — 먼저 등록해야 함."""
 
+    SPOOF_DETECTED = "spoof_detected"
+    """합성 음성으로 판정되어 차단됨 (Phase 8, FR-16).
+
+    클라이언트에는 탐지 상세를 노출하지 않는다. 공격자가 점수를 보고 우회
+    방법을 찾는 것을 막기 위해서다 (FR-18).
+    """
+
     MODEL_MISMATCH = "model_mismatch"
     """등록 성문이 현재 임베딩 모델과 다른 모델로 만들어짐 — 재등록 필요.
 
