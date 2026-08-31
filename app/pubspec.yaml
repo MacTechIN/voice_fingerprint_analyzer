@@ -1,0 +1,35 @@
+name: voiceguard
+description: VoiceGuard 화자 인증 클라이언트 (Thin Client)
+publish_to: none
+version: 0.1.0
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # 네트워크 — Multipart 업로드, 인터셉터, 타임아웃 (07 §11)
+  dio: ^5.7.0
+
+  # 오디오 캡처 — PCM 16kHz 스트림 지원 (07 §11)
+  record: ^5.2.0
+
+  # 권한
+  permission_handler: ^11.3.1
+
+  # 상태 관리
+  flutter_riverpod: ^2.5.1
+
+  # 경로
+  path_provider: ^2.1.4
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+  http_mock_adapter: ^0.6.1
+
+flutter:
+  uses-material-design: true
