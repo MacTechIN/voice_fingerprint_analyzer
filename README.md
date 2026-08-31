@@ -6,6 +6,19 @@
 - **Fat Server:** Python(FastAPI) AI 추론 서버가 VAD → 임베딩 추출(ECAPA-TDNN → ERes2NetV2) → 코사인 유사도 + AS-Norm 정규화 판정 수행
 - **확장 로드맵:** 음성 향상(DeepFilterNet) → 음성 분리/타겟 화자 추출(TSE) → 딥페이크 탐지(AASIST)
 
+## 구현 현황
+
+| 컴포넌트 | 상태 | 위치 |
+| :--- | :--- | :--- |
+| AI 서버 (Phase 1) | ✅ VAD + ECAPA-TDNN 임베딩 추출 API | [server/](server/) |
+| 벡터 DB · 등록/검증 (Phase 2) | 예정 | — |
+| Flutter 앱 (Phase 3) | 예정 | — |
+| 관리자 웹 (Phase 4) | 예정 | — |
+
+```bash
+cd server && ./run.sh          # http://localhost:8000/docs
+```
+
 ## 문서 (docs/)
 
 | 문서 | 내용 |

@@ -3,9 +3,34 @@
 
 앱 경량화를 목표로 하므로, **API 서버 우선 구축 후 클라이언트를 연동하는 방식**으로 스택을 쌓아 올립니다. Phase 1~5는 프로토타입(Phase A) 완성 경로이며, Phase 6~8은 연구 보고서(『음성 분리 및 화자 대조』)의 4단계 기술 로드맵 — ① 전처리·분리 프론트엔드, ② 초구면 잠재 공간 최적화, ③ 분리 왜곡 극복·AS-Norm 백엔드, ④ 보안 방어막 — 을 단계적으로 반영하는 확장 경로입니다.
 
-## Phase 1: AI 서버 구축 및 API 설계 (Week 1-2)
+## Phase 1: AI 서버 구축 및 API 설계 (Week 1-2) — ✅ 완료
+
 *   *Micro-process:* Python(FastAPI) 기반으로 ECAPA-TDNN 모델 로드 환경 구성. 파이프라인 최전단에 Silero VAD 결합 (무음·소음 구간 제거 후 임베딩 추출).
 *   *Output:* 오디오 파일을 업로드하면 임베딩 벡터(모델 기본 차원, ECAPA-TDNN 기준 192차원)를 반환하는 `POST /extract` API 완성. 유효 발화 길이 미달 시 사유 코드 반려 응답 포함.
+
+### 구현 결과 (`server/`)
+
+| 항목 | 결과 |
+| :--- | :--- |
+| 엔드포인트 | `POST /api/v1/extract`, `GET /api/v1/health` |
+| 파이프라인 | 디코딩(16kHz/Mono 정규화) → Silero VAD → ECAPA-TDNN |
+| 임베딩 | 192차원, L2 정규화, `model`·`dim` 메타데이터 동봉 |
+| 반려 사유 코드 | 6종 (`empty_file`, `file_too_large`, `unreadable_audio`, `audio_too_long`, `no_speech_detected`, `speech_too_short`) |
+| 테스트 | 22개 통과 (모델 모킹 없이 실측) |
+| 실측 성능 | 7초 오디오 처리 359ms, 서버 기동 4초(모델 선적재 포함) |
+
+**구현 중 확정한 설계 판단**
+
+*   **반려는 5xx가 아니라 422다.** 발화 부족·무음은 서버 장애가 아니라 입력 문제이며, 클라이언트는 `code`별로 다른 재녹음 안내를 띄운다(04 §4). 사유 코드 값은 클라이언트 계약이므로 변경 금지 대상이다.
+*   **응답을 `audio`/`embedding` 중첩 객체로 묶었다.** 최상위를 평평하게 두면 Phase B~D에서 `normalized_score`·`spoof_score`가 붙을 때 계약이 지저분해진다(01 §2 확장 여지).
+*   **임베딩을 저장 전 L2 정규화한다.** 이후 코사인 유사도를 내적만으로 얻는다(Phase 2 스코어링 단순화).
+*   **추론은 워커 스레드로 넘긴다.** CPU 바운드 작업이 GIL을 잡으면 이벤트 루프가 다른 요청의 I/O를 처리하지 못한다.
+*   **규격 외 입력(44.1kHz 스테레오 등)도 서버가 흡수한다.** 단 리샘플링은 선형 보간이므로 품질이 중요하면 클라이언트를 고치는 것이 맞다.
+
+**해결한 의존성 충돌 2건** (requirements.txt에 고정, speechbrain 업그레이드 시 재검토)
+
+*   `huggingface-hub` 1.x가 `use_auth_token` 인자를 제거했으나 speechbrain 1.0.2가 아직 사용 → `0.26.5`로 고정.
+*   `requests`를 speechbrain이 런타임에 쓰면서 의존성으로 선언하지 않음 → 직접 추가.
 
 ## Phase 2: Vector DB 통합 및 인증 로직 (Week 3-4)
 *   *Micro-process:* Supabase pgvector 구축 (임베딩 모델명·버전·차원 메타데이터 컬럼 포함). 두 오디오 벡터를 비교해 % 확률을 도출하는 코사인 유사도 로직 작성.
