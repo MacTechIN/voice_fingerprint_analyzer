@@ -99,3 +99,13 @@ async def load_cohort(model: str, top_k: int):
 def get_cohort():
     """적재된 코호트. 없으면 None (AS-Norm 비활성)."""
     return _cohort
+
+
+def get_pool():
+    """asyncpg 연결 풀. 인메모리 저장소로 떴으면 None.
+
+    관리자 대시보드의 집계 질의가 쓴다. 통계는 SQL 집계가 압도적으로 효율적이라
+    저장소 인터페이스로 추상화하지 않고 풀을 직접 노출한다 — 인메모리 구현에
+    윈도우 함수와 percentile을 흉내 내는 것은 얻는 것 없이 복잡하기만 하다.
+    """
+    return _pool

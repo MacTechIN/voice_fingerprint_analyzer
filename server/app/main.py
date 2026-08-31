@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from app.api.admin import router as admin_router
 from app.api.routes import router
 from app.config import get_settings
 from app.core.errors import AudioRejected
@@ -101,6 +102,7 @@ async def audio_rejected_handler(request: Request, exc: AudioRejected) -> JSONRe
 
 
 app.include_router(router, prefix=API_PREFIX)
+app.include_router(admin_router, prefix=API_PREFIX)
 
 
 @app.get("/", tags=["ops"], include_in_schema=False)

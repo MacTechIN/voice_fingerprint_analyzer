@@ -14,11 +14,12 @@
 | 벡터 DB · 등록/검증 (Phase 2) | ✅ pgvector 저장 + 1:1 코사인 검증 | [server/](server/) |
 | AS-Norm · 캘리브레이션 (Phase 6) | ✅ EER 1.25% 실측, WeSpeaker ONNX 코어 | [server/eval/](server/eval/) |
 | Flutter 앱 (Phase 3) | ✅ 5개 OS 크로스플랫폼 클라이언트 | [app/](app/) |
-| 관리자 웹 (Phase 4) | 예정 | — |
+| 관리자 웹 (Phase 4) | ✅ 대시보드·화자DB·오딧트레일·캘리브레이션 | [web/](web/) |
 
 ```bash
 cd server && ./run.sh                                          # API: localhost:8000/docs
 cd app && flutter run --dart-define=VG_API_BASE_URL=http://localhost:8000
+cd web && npm run dev                                          # 관리자: localhost:3000
 ```
 
 ## 문서 (docs/)

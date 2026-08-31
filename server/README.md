@@ -218,6 +218,7 @@ VG_DATABASE_URL="postgresql://..." .venv/bin/python -m eval.seed_cohort --replac
 | `VG_MAX_UPLOAD_BYTES` | `33554432` | 업로드 최대 크기 (32MB) |
 | `VG_EMBEDDING_MODEL` | `Wespeaker/wespeaker-voxceleb-resnet34-LM` | 임베딩 백본 |
 | `VG_WARMUP_ON_STARTUP` | `true` | 기동 시 모델 선적재 |
+| `VG_ADMIN_TOKEN` | (없음) | 관리자 API 인증 토큰. **미설정 시 `/admin/*`이 503으로 막힌다** |
 
 ## 테스트
 
@@ -255,6 +256,28 @@ Postgres 두 구현을 **같은 계약 테스트**로 검증해 둘이 어긋나
 - **1:N 식별은 없다.** 1:1 검증만 지원하며, `user_id`로 좁힌 뒤 소수의 벡터만
   비교하므로 ANN 인덱스도 두지 않았다. 1:N을 도입하면 HNSW(`vector_cosine_ops`)를
   추가하고 유사도 계산을 SQL(`<=>`)로 옮긴다.
+
+## 관리자 API
+
+`/api/v1/admin/*` — 대시보드(`web/`)가 사용한다. `VG_ADMIN_TOKEN` **필수**이며,
+미설정 시 503으로 거부한다. 감사 로그와 사용자 ID가 노출되는 경로이므로 설정을
+빠뜨린 배포가 조용히 공개되면 안 되기 때문이다.
+
+| 엔드포인트 | 내용 |
+| :--- | :--- |
+| `GET /admin/overview` | 요청 수, 결과 분포, 지연 p50/p95, 등록·코호트 규모 |
+| `GET /admin/timeseries` | 시간대별 결과·지연 추이 |
+| `GET /admin/score-distribution` | 판정 점수 히스토그램 (통과/거부별) |
+| `GET /admin/threshold-impact` | 임계값 변경 시 뒤집히는 판정 건수 |
+| `GET /admin/speakers` | 등록 현황 + 재등록 필요 여부 |
+| `GET /admin/attempts` | 오딧 트레일 (페이지네이션) |
+| `GET /admin/calibration` | 현재 설정 + 오프라인 캘리브레이션 보고서 |
+
+> **운영 로그로는 FAR/FRR을 계산할 수 없다.** 감사 로그에 정답 레이블이 없기
+> 때문이다. EER·minDCF는 `eval/`의 레이블 있는 평가에서만 나오며, 응답에 이
+> 한계를 명시하는 `caveat` 필드를 함께 실어 보낸다.
+
+PostgreSQL 저장소에서만 동작한다(집계에 SQL 윈도우 함수·percentile을 쓴다).
 
 ## 다음 단계
 
