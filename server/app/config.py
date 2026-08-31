@@ -42,6 +42,29 @@ class Settings(BaseSettings):
     model_cache_dir: str = "./.model_cache"
     """사전학습 모델 다운로드 캐시 경로."""
 
+    # --- 저장소 (Phase 2) ---
+    database_url: str = ""
+    """PostgreSQL 접속 URL. 비우면 인메모리 저장소로 뜬다(개발·데모용).
+
+    예: postgresql://voiceguard:voiceguard@127.0.0.1:54321/voiceguard
+    """
+
+    # --- 판정 (Phase 2) ---
+    match_threshold: float = 0.25
+    """동일인 판정 코사인 임계값.
+
+    SpeechBrain ECAPA-TDNN의 관례적 기본값이며 **본 시스템 데이터로 캘리브레이션한
+    값이 아니다.** 실제 운영 임계값은 Genuine/Impostor 분포를 모아 EER·minDCF로
+    결정해야 하고, 그것은 Phase 6 과제다 (06 Phase 6, 03 §4).
+    """
+
+    enroll_replaces_existing: bool = True
+    """등록 시 기존 성문을 비활성화할지 여부.
+
+    기본값 True는 "마지막 등록이 유효한 성문"이라는 단순한 모델이다. False로
+    두면 여러 발화가 누적되고 검증은 그중 최대 유사도로 판정한다.
+    """
+
     # --- 런타임 ---
     warmup_on_startup: bool = True
     """기동 시 모델을 미리 적재해 첫 요청 지연을 없앤다."""

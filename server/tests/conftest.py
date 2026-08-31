@@ -87,10 +87,39 @@ def stereo_44k_wav_bytes() -> bytes:
 
 @pytest.fixture(scope="session")
 def client():
-    """모델을 적재한 테스트 클라이언트 (세션 1회)."""
+    """모델을 적재한 테스트 클라이언트 (세션 1회).
+
+    저장소는 인메모리로 뜬다 (`VG_DATABASE_URL` 미설정). Postgres 경로는
+    `test_repository.py`가 실제 DB로 따로 검증한다.
+    """
     from fastapi.testclient import TestClient
 
     from app.main import app
 
     with TestClient(app) as c:
         yield c
+
+
+@pytest.fixture
+def fresh_storage(client):
+    """각 테스트가 빈 저장소에서 시작하도록 초기화한다.
+
+    세션 스코프 클라이언트를 공유하므로, 앞선 테스트가 등록한 성문이 남아 있으면
+    "미등록 사용자" 같은 조건을 만들 수 없다.
+    """
+    from app.db import session as db_session
+    from app.db.repository import InMemoryRepository
+
+    repo = db_session.get_repository()
+    assert isinstance(repo, InMemoryRepository), "테스트는 인메모리 저장소를 전제한다"
+    repo._rows.clear()
+    repo._logs.clear()
+    repo._next_id = 1
+    return repo
+
+
+def unique_user(prefix: str = "user") -> str:
+    """테스트 간 충돌하지 않는 사용자 ID."""
+    import uuid
+
+    return f"{prefix}-{uuid.uuid4().hex[:8]}"

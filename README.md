@@ -11,7 +11,7 @@
 | 컴포넌트 | 상태 | 위치 |
 | :--- | :--- | :--- |
 | AI 서버 (Phase 1) | ✅ VAD + ECAPA-TDNN 임베딩 추출 API | [server/](server/) |
-| 벡터 DB · 등록/검증 (Phase 2) | 예정 | — |
+| 벡터 DB · 등록/검증 (Phase 2) | ✅ pgvector 저장 + 1:1 코사인 검증 | [server/](server/) |
 | Flutter 앱 (Phase 3) | 예정 | — |
 | 관리자 웹 (Phase 4) | 예정 | — |
 

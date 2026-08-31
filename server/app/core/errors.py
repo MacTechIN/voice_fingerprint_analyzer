@@ -29,6 +29,18 @@ class ErrorCode(str, Enum):
     SPEECH_TOO_SHORT = "speech_too_short"
     """유효 발화가 최소 길이 미달 — 더 길게 말해야 함."""
 
+    # --- Phase 2: 등록·검증 ---
+
+    NOT_ENROLLED = "not_enrolled"
+    """검증 대상 사용자의 등록 성문이 없음 — 먼저 등록해야 함."""
+
+    MODEL_MISMATCH = "model_mismatch"
+    """등록 성문이 현재 임베딩 모델과 다른 모델로 만들어짐 — 재등록 필요.
+
+    모델을 교체하면 기존 벡터와 호환되지 않는다. 이를 조용히 비교하면 무의미한
+    유사도가 나오므로 명시적으로 거부한다 (02 §6 재등록 마이그레이션).
+    """
+
 
 class AudioRejected(Exception):
     """오디오가 임베딩 추출 조건을 만족하지 못해 반려됨.

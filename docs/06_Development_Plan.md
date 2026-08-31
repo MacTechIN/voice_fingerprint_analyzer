@@ -32,10 +32,35 @@
 *   `huggingface-hub` 1.x가 `use_auth_token` 인자를 제거했으나 speechbrain 1.0.2가 아직 사용 → `0.26.5`로 고정.
 *   `requests`를 speechbrain이 런타임에 쓰면서 의존성으로 선언하지 않음 → 직접 추가.
 
-## Phase 2: Vector DB 통합 및 인증 로직 (Week 3-4)
+## Phase 2: Vector DB 통합 및 인증 로직 (Week 3-4) — ✅ 완료
+
 *   *Micro-process:* Supabase pgvector 구축 (임베딩 모델명·버전·차원 메타데이터 컬럼 포함). 두 오디오 벡터를 비교해 % 확률을 도출하는 코사인 유사도 로직 작성.
-*   *Vertical Slice:* 서버 단독으로 등록(`POST /enroll`) 및 검증(`POST /verify`) API 엔드투엔드 작동 확인 (Postman 테스트).
+*   *Vertical Slice:* 서버 단독으로 등록(`POST /enroll`) 및 검증(`POST /verify`) API 엔드투엔드 작동 확인.
 *   *설계 원칙:* 응답 JSON은 확장 가능 스키마로 설계 (추후 `normalized_score`, `spoof_score` 등 필드 무중단 추가 대비).
+
+### 구현 결과 (`server/`)
+
+| 항목 | 결과 |
+| :--- | :--- |
+| 엔드포인트 추가 | `POST /api/v1/enroll`, `POST /api/v1/verify` |
+| 스키마 | `speaker_enrollments`(vector(192) + model·dim 메타데이터), `verification_attempts`(감사 로그) |
+| 저장소 | PostgreSQL 16 + pgvector, 인메모리 폴백 (동일 계약) |
+| 반려 코드 추가 | `not_enrolled`, `model_mismatch` |
+| 테스트 | 51개 통과 (Postgres 계약 테스트 포함) |
+| 실측 성능 | 등록 415ms, 검증 273ms |
+
+**구현 중 확정한 설계 판단**
+
+*   **모델 불일치는 조용히 넘기지 않는다.** 등록 성문이 현재 임베딩 모델과 다르면 `model_mismatch`로 거부한다. 차원만 같고 모델이 다른 벡터를 비교하면 무의미한 유사도가 나오는데, 그 값이 그대로 인증 판정에 쓰이기 때문이다(02 §6).
+*   **재등록은 삭제가 아니라 비활성화다.** 재등록 후 문제가 생겼을 때 이전 벡터를 추적할 수 있어야 하고, 감사 로그가 참조하는 이력이 사라지면 안 된다.
+*   **다중 등록 시 평균이 아니라 최대 유사도로 판정한다.** 평균 벡터는 발화 조건이 다른 벡터들을 뭉개 어느 쪽과도 덜 닮은 중심을 만들 수 있다. 평균 성문은 01 §2의 향후 보강 후보로 유지.
+*   **유사도 계산을 SQL이 아닌 애플리케이션에서 한다.** 1:1 검증은 사용자당 소수 벡터만 비교하므로 SQL로 넘길 이득이 없고, Phase 6에 AS-Norm이 들어오면 어차피 스코어 후처리를 애플리케이션에서 해야 한다. 1:N 식별 도입 시 `<=>`와 HNSW로 옮긴다.
+*   **`match_probability`는 확률이 아님을 문서·코드에 명시했다.** 판정 경계를 50%에 맞춘 구간 선형 재척도이며, `verification_attempts.normalized_score`는 Phase 6 자리로 비워 두었다(가짜 값을 채우지 않음).
+*   **저장소는 실패 시 기동을 중단한다.** 모델 워밍업과 달리 저장소 없이는 등록·검증이 성립하지 않으므로, 반쯤 동작하는 서버를 띄우는 것보다 즉시 실패하는 편이 낫다.
+
+### ⚠ Phase 6까지 유효한 경고
+
+임계값 `0.25`는 **SpeechBrain 관례값일 뿐 본 시스템 데이터로 캘리브레이션한 값이 아니다.** E2E 검증에서 음향적으로 다른 합성 음원이 코사인 0.394로 임계값을 넘어 `is_verified=true`가 나왔다. 합성음이라 화자 인식 성능 자체를 재는 상황은 아니지만, **고정 임계값 판정의 취약성을 그대로 보여준다**(02 §4.2가 예고한 문제). 실제 운영 임계값은 Genuine/Impostor 분포를 모아 EER·minDCF로 결정해야 하며, 그전까지 판정 결과를 신뢰해서는 안 된다.
 
 ## Phase 3: 경량화된 Cross-Platform App 개발 (Week 5-7)
 *   *Micro-process:* Flutter 프로젝트 세팅, 마이크 제어 및 오디오 파일화 로직 구현 (16kHz/Mono 캡처, 최소 3초 발화 강제, 입력 레벨 피드백).
