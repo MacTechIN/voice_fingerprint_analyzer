@@ -31,6 +31,7 @@ from app.schemas import (
 )
 from app.services import audio as audio_svc
 from app.services import embedding as embedding_svc
+from app.services import enhance as enhance_svc
 from app.services import scoring
 from app.services import vad as vad_svc
 
@@ -54,8 +55,13 @@ def _analyze(raw: bytes, settings: Settings) -> _Analyzed:
         target_rate=settings.target_sample_rate,
         max_sec=settings.max_audio_sec,
     )
+    samples = decoded.samples
+    if settings.enhance_enabled:
+        # VAD 앞에 둔다. 소음을 먼저 걷어내야 VAD가 발화 구간을 더 정확히 잡는다.
+        samples = enhance_svc.apply(samples, decoded.sample_rate)
+
     vad_result = vad_svc.apply(
-        decoded.samples,
+        samples,
         decoded.sample_rate,
         threshold=settings.vad_threshold,
         min_silence_ms=settings.vad_min_silence_ms,
@@ -66,6 +72,8 @@ def _analyze(raw: bytes, settings: Settings) -> _Analyzed:
         vad_result.samples,
         model_name=settings.embedding_model,
         cache_dir=settings.model_cache_dir,
+        backend=settings.embedding_backend,
+        onnx_threads=settings.onnx_intra_op_threads,
     )
     return _Analyzed(
         audio=AudioInfo(
@@ -111,11 +119,13 @@ async def health(
     return HealthResponse(
         status="ok",
         model=settings.embedding_model,
-        models_loaded=embedding_svc._classifier is not None,
+        models_loaded=embedding_svc.is_loaded(),
         storage=db_session.backend_name(),
         storage_ok=await repo.health(),
         asnorm_active=cohort is not None,
         cohort_size=cohort.size if cohort else 0,
+        enhance_active=settings.enhance_enabled and enhance_svc.is_loaded(),
+        embedding_backend=settings.embedding_backend,
     )
 
 

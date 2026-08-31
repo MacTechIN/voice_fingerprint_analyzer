@@ -18,6 +18,9 @@ requests==2.32.3          # speechbrain이 런타임에 쓰지만 의존성으�
 # 상한을 풀면 모델 적재가 TypeError로 실패하므로 speechbrain 업그레이드 전까지 고정한다.
 huggingface-hub==0.26.5
 silero-vad==5.1.2
+# 음성 향상. 실측에서 화자 검증 EER을 악화시켜 기본 비활성이나(VG_ENHANCE_ENABLED),
+# 재평가를 위해 의존성은 유지한다 (06 Phase 6 참조).
+deepfilternet==0.5.6
 
 # --- DB (Phase 2) ---
 asyncpg==0.30.0

@@ -27,7 +27,16 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s: %(mes
 logger = logging.getLogger(__name__)
 
 CACHE_DIR = Path(__file__).resolve().parent.parent / ".data" / "cache"
-REPORT_PATH = Path(__file__).resolve().parent.parent / ".data" / "calibration_report.json"
+DATA_DIR = Path(__file__).resolve().parent.parent / ".data"
+
+
+def _slug(settings) -> str:
+    """백엔드+모델을 파일명에 쓸 수 있는 식별자로 만든다.
+
+    캐시를 백엔드별로 분리하지 않으면 모델을 바꿔도 이전 임베딩을 재사용해
+    측정이 조용히 틀린다 — 오류가 나지 않아 눈치채기 어려운 종류의 실수다.
+    """
+    return f"{settings.embedding_backend}__{settings.embedding_model.replace('/', '_')}"
 
 # 코호트 상위 K개. 값이 클수록 통계가 안정되지만 '가장 혼동하기 쉬운 임포스터'라는
 # 적응적 성격이 옅어진다. 문헌에서 통상 200~400을 쓰며, 여기서는 코호트 크기에
@@ -42,12 +51,20 @@ def _normalize_rows(matrix: np.ndarray) -> np.ndarray:
 
 
 def main() -> None:
+    from app.config import get_settings
+
+    settings = get_settings()
+    slug = _slug(settings)
+    cache_dir = CACHE_DIR / slug
+    report_path = DATA_DIR / f"calibration_report__{slug}.json"
+    logger.info("백엔드=%s 모델=%s", settings.embedding_backend, settings.embedding_model)
+
     # --- 1. 평가 트라이얼 ---
     logger.info("평가 발화 로드 (dev-clean)")
     eval_utts = load_utterances("dev-clean", max_per_speaker=8, seed=0)
     logger.info("평가 발화 %d개 / 화자 %d명", len(eval_utts), len({u.speaker for u in eval_utts}))
 
-    eval_emb = extract_all(eval_utts, CACHE_DIR / "dev-clean.npz")
+    eval_emb = extract_all(eval_utts, cache_dir / "dev-clean.npz")
 
     # 임베딩 추출에 실패(VAD 반려)한 발화는 트라이얼에서 제외한다
     usable = [u for u in eval_utts if u.key in eval_emb]
@@ -57,7 +74,7 @@ def main() -> None:
     # --- 2. 코호트 ---
     logger.info("코호트 발화 로드 (test-clean, 평가 화자와 분리)")
     cohort_utts = load_utterances("test-clean", max_per_speaker=8, seed=0)
-    cohort_emb = extract_all(cohort_utts, CACHE_DIR / "test-clean.npz")
+    cohort_emb = extract_all(cohort_utts, cache_dir / "test-clean.npz")
     cohort_matrix = np.stack([cohort_emb[u.key] for u in cohort_utts if u.key in cohort_emb])
     logger.info("코호트 %d개 임베딩", len(cohort_matrix))
 
@@ -131,6 +148,8 @@ def main() -> None:
         }
 
     report = {
+        "backend": settings.embedding_backend,
+        "model": settings.embedding_model,
         "dataset": {
             "eval_split": "dev-clean",
             "cohort_split": "test-clean",
@@ -149,10 +168,11 @@ def main() -> None:
             "asnorm_threshold": best.eer_threshold,
         },
     }
-    REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    REPORT_PATH.write_text(json.dumps(report, indent=2, ensure_ascii=False))
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
 
     print("\n" + "=" * 72)
+    print(f"백엔드: {settings.embedding_backend} / {settings.embedding_model}")
     print(f"평가: {report['dataset']['eval_speakers']}화자 / "
           f"{report['dataset']['trials']}트라이얼 "
           f"(genuine {raw_metrics.n_genuine}, impostor {raw_metrics.n_impostor})")
@@ -175,7 +195,7 @@ def main() -> None:
     print(f"권장 원시 임계값: {raw_metrics.eer_threshold:.4f}")
     print(f"권장 AS-Norm 임계값: {best.eer_threshold:.4f} (K={best_k})")
     print("=" * 72)
-    print(f"\n보고서: {REPORT_PATH}")
+    print(f"\n보고서: {report_path}")
 
 
 if __name__ == "__main__":

@@ -128,3 +128,5 @@ class HealthResponse(BaseModel):
         False, description="AS-Norm 정규화가 실제로 적용되고 있는지 (코호트 적재 여부)"
     )
     cohort_size: int = Field(0, description="적재된 임포스터 코호트 크기")
+    enhance_active: bool = Field(False, description="DeepFilterNet 소음 억제 적용 여부")
+    embedding_backend: str = Field("unknown", description="임베딩 백엔드 (speechbrain | wespeaker)")

@@ -12,7 +12,7 @@
 | :--- | :--- | :--- |
 | AI 서버 (Phase 1) | ✅ VAD + ECAPA-TDNN 임베딩 추출 API | [server/](server/) |
 | 벡터 DB · 등록/검증 (Phase 2) | ✅ pgvector 저장 + 1:1 코사인 검증 | [server/](server/) |
-| AS-Norm · 캘리브레이션 (Phase 6) | ✅ EER 1.25% / minDCF 0.0317 실측 | [server/eval/](server/eval/) |
+| AS-Norm · 캘리브레이션 (Phase 6) | ✅ EER 1.25% 실측, WeSpeaker ONNX 코어 | [server/eval/](server/eval/) |
 | Flutter 앱 (Phase 3) | 예정 | — |
 | 관리자 웹 (Phase 4) | 예정 | — |
 

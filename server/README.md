@@ -1,11 +1,11 @@
 # VoiceGuard Verification — AI 서버
 
 성문(Voiceprint) 기반 화자 인증 API. 오디오를 받아 **VAD로 무음을 제거**하고
-**ECAPA-TDNN으로 192차원 임베딩**을 만들어 **pgvector에 등록**하고,
+**WeSpeaker ResNet34-LM(ONNX)으로 256차원 임베딩**을 만들어 **pgvector에 등록**하고,
 **AS-Norm 정규화 점수로 1:1 검증**한다.
 
-**실측 성능 (LibriSpeech dev-clean, 40화자 2,400트라이얼): EER 1.25%, minDCF 0.0317.**
-측정 방법과 한계는 [eval/README.md](eval/README.md) 참조.
+**실측 성능 (LibriSpeech dev-clean, 40화자 2,400트라이얼): EER 1.25%, minDCF 0.0392.**
+검증 응답 116ms, 서버 기동 2초. 측정 방법과 한계는 [eval/README.md](eval/README.md) 참조.
 
 ## 빠른 시작
 
@@ -21,6 +21,7 @@ docker run -d --name voiceguard-dev-db \
   -p 127.0.0.1:54321:5432 pgvector/pgvector:pg16
 docker exec -i voiceguard-dev-db psql -U voiceguard -d voiceguard < migrations/001_init.sql
 docker exec -i voiceguard-dev-db psql -U voiceguard -d voiceguard < migrations/002_cohort.sql
+docker exec -i voiceguard-dev-db psql -U voiceguard -d voiceguard < migrations/003_variable_dim.sql
 
 export VG_DATABASE_URL="postgresql://voiceguard:voiceguard@127.0.0.1:54321/voiceguard"
 
@@ -40,7 +41,7 @@ API 문서는 `http://localhost:8000/docs`.
 ## 파이프라인
 
 ```
-업로드 → 디코딩(16kHz/Mono) → Silero VAD(무음 제거) → ECAPA-TDNN → 192차원 임베딩
+업로드 → 디코딩(16kHz/Mono) → Silero VAD(무음 제거) → WeSpeaker ONNX → 256차원 임베딩
                                     │                                  │
                                     │                  ┌───────────────┴───────────────────┐
                         유효 발화 < 1.5초 → 422        │ enroll: pgvector 저장              │
@@ -60,12 +61,14 @@ AS-Norm은 임포스터 코호트를 기준으로 점수를 표준화해 화자 
 ```json
 {
   "status": "ok",
-  "model": "speechbrain/spkrec-ecapa-voxceleb",
+  "model": "Wespeaker/wespeaker-voxceleb-resnet34-LM",
   "models_loaded": true,
   "storage": "postgres",
   "storage_ok": true,
   "asnorm_active": true,
-  "cohort_size": 310
+  "cohort_size": 310,
+  "enhance_active": false,
+  "embedding_backend": "wespeaker"
 }
 ```
 
@@ -115,13 +118,13 @@ curl -X POST http://localhost:8000/api/v1/verify -F "user_id=alice" -F "file=@sp
   "user_id": "alice",
   "is_verified": true,
   "match_probability": 100.0,
-  "raw_cosine": 0.7677,
-  "normalized_score": 11.4606,
+  "raw_cosine": 0.7722,
+  "normalized_score": 9.1427,
   "scoring_method": "as_norm",
-  "threshold": 3.0033,
+  "threshold": 2.9673,
   "compared_enrollments": 1,
   "audio": { "…": "…" },
-  "elapsed_ms": 299.8
+  "elapsed_ms": 115.7
 }
 ```
 
@@ -173,6 +176,11 @@ curl -X POST http://localhost:8000/api/v1/verify -F "user_id=alice" -F "file=@sp
 | `verification_attempts` | 검증 감사 로그. 원시 점수·정규화 점수·판정 결과·IP (03 오딧 트레일) |
 | `impostor_cohort` | AS-Norm 임포스터 코호트. **사용자 성문과 물리적으로 분리** |
 
+`embedding` 컬럼은 차원 무제약 `vector`다(마이그레이션 003). 백엔드를 바꾸면 차원이
+달라지므로 고정하지 않았고, 대신 **비교 전 `model`·`dim` 일치 확인이 필수**다.
+1:1 검증은 ANN 인덱스가 필요 없어 가능한 선택이며, 1:N 식별을 도입하면 차원별
+부분 인덱스나 파티션이 필요해진다.
+
 벡터와 함께 `model`·`dim`을 **반드시** 저장한다. 모델을 교체하면 기존 벡터와
 호환되지 않는데, 메타데이터가 없으면 어떤 행이 어느 모델 것인지 사후에 알 수 없다.
 
@@ -195,25 +203,29 @@ VG_DATABASE_URL="postgresql://..." .venv/bin/python -m eval.seed_cohort --replac
 | 변수 | 기본값 | 설명 |
 | :--- | :--- | :--- |
 | `VG_DATABASE_URL` | (없음) | PostgreSQL URL. 비우면 인메모리 |
-| `VG_MATCH_THRESHOLD` | `0.3333` | 원시 코사인 임계값 (AS-Norm 폴백 시, EER 지점) |
+| `VG_MATCH_THRESHOLD` | `0.3767` | 원시 코사인 임계값 (AS-Norm 폴백 시, EER 지점) |
 | `VG_ASNORM_ENABLED` | `true` | AS-Norm 정규화 사용 여부 |
 | `VG_ASNORM_TOP_K` | `200` | 코호트 상위 K개 적응 선택 |
-| `VG_ASNORM_THRESHOLD` | `3.0033` | AS-Norm 판정 임계값 (EER 지점) |
+| `VG_ASNORM_THRESHOLD` | `2.9673` | AS-Norm 판정 임계값 (EER 지점) |
+| `VG_EMBEDDING_BACKEND` | `wespeaker` | 임베딩 백엔드 (`speechbrain` \| `wespeaker`) |
+| `VG_EMBEDDING_DIM` | `256` | 임베딩 차원 (백엔드와 반드시 일치) |
+| `VG_ONNX_INTRA_OP_THREADS` | `4` | ONNX 연산 내 스레드 (지연 ↔ 동시처리 트레이드오프) |
+| `VG_ENHANCE_ENABLED` | `false` | DeepFilterNet 소음 억제 (**측정상 EER 악화 — 기본 비활성**) |
 | `VG_ENROLL_REPLACES_EXISTING` | `true` | 등록 시 기존 성문 비활성화 |
 | `VG_MIN_SPEECH_SEC` | `1.5` | 유효 발화 길이 하한 |
 | `VG_VAD_THRESHOLD` | `0.5` | Silero VAD 발화 확률 임계값 |
 | `VG_MAX_AUDIO_SEC` | `300` | 단일 요청 최대 오디오 길이 |
 | `VG_MAX_UPLOAD_BYTES` | `33554432` | 업로드 최대 크기 (32MB) |
-| `VG_EMBEDDING_MODEL` | `speechbrain/spkrec-ecapa-voxceleb` | 임베딩 백본 |
+| `VG_EMBEDDING_MODEL` | `Wespeaker/wespeaker-voxceleb-resnet34-LM` | 임베딩 백본 |
 | `VG_WARMUP_ON_STARTUP` | `true` | 기동 시 모델 선적재 |
 
 ## 테스트
 
 ```bash
-.venv/bin/python -m pytest -q                                   # 인메모리만 (67 passed, 2 skipped)
+.venv/bin/python -m pytest -q                                   # 인메모리 (77 passed, 2 skipped)
 
 VG_TEST_DATABASE_URL="postgresql://voiceguard:voiceguard@127.0.0.1:54321/voiceguard" \
-  .venv/bin/python -m pytest -q                                 # Postgres 포함 (69 passed)
+  .venv/bin/python -m pytest -q                                 # Postgres 포함 (79 passed)
 ```
 
 모델을 모킹하지 않고 실제 Silero VAD·ECAPA-TDNN을 통과시킨다. 저장소는 인메모리와
@@ -225,8 +237,14 @@ Postgres 두 구현을 **같은 계약 테스트**로 검증해 둘이 어긋나
   측정했으므로, 실제 서비스의 잡음·짧은 발화·다국어 조건과 다르다. **출발점이지
   최종값이 아니며**, 운영 데이터가 쌓이면 그 분포로 재캘리브레이션해야 한다.
   화자 80명은 통계적으로 넉넉하지 않아 표본 오차도 있다.
-- **음성 향상(DeepFilterNet)이 아직 없다.** Phase 6 Micro-process 2 미착수.
-- **임베딩 코어가 아직 SpeechBrain이다.** WeSpeaker 전환(Micro-process 1) 미착수.
+- **음성 향상은 구현했으나 기본 비활성이다.** 실측에서 모든 SNR 조건의 EER이
+  악화됐다(SNR 5dB: 5.15% → 8.47%). 분리도가 일관되게 떨어지는 것으로 보아, 향상이
+  소음뿐 아니라 화자 고유 특징까지 지우는 것으로 보인다. 근거 없이 켜지 말 것 —
+  상세는 [06 Phase 6](../docs/06_Development_Plan.md).
+- **백엔드 전환 시 재등록이 필수다.** `VG_EMBEDDING_BACKEND`를 바꾸면 임베딩 차원과
+  잠재 공간이 달라져 기존 벡터와 호환되지 않는다. 서버는 `model_mismatch`로 거부하지만,
+  전환 전에 재등록 계획과 코호트 재구축(`eval.seed_cohort --replace`), 임계값
+  재캘리브레이션을 준비해야 한다.
 - **의존성 고정 2건**: `huggingface-hub`는 1.x에서 `use_auth_token`을 제거했으나
   speechbrain 1.0.2가 아직 사용하므로 `0.26.5`로 고정했다. `requests`는 speechbrain이
   런타임에 쓰면서 의존성으로 선언하지 않아 직접 추가했다.
@@ -240,5 +258,4 @@ Postgres 두 구현을 **같은 계약 테스트**로 검증해 둘이 어긋나
 
 ## 다음 단계
 
-- **Phase 6 잔여**: WeSpeaker 코어 전환, DeepFilterNet 음성 향상
-- **Phase 3**: Flutter 클라이언트에서 녹음 → `/enroll`·`/verify` → 결과 시각화 E2E
+**Phase 3**: Flutter 클라이언트에서 녹음 → `/enroll`·`/verify` → 결과 시각화 E2E

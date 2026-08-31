@@ -39,7 +39,7 @@ def test_enroll_stores_voiceprint(client, fresh_storage, speech_wav_bytes):
     assert body["user_id"] == user
     assert body["enrollment_id"] > 0
     assert body["replaced"] == 0  # 첫 등록이므로 대체된 것이 없다
-    assert body["embedding"]["dim"] == 192
+    assert body["embedding"]["dim"] == get_settings().embedding_dim
     assert body["audio"]["speech_duration_sec"] >= 1.5
 
     stored = fresh_storage._rows

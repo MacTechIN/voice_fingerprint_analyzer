@@ -5,3 +5,5 @@ __pycache__/
 .pytest_cache/
 .env
 .data/
+# 수동 API 테스트 임시 출력
+r.json

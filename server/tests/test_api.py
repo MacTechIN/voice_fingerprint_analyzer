@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from app.config import get_settings
 from app.core.errors import ErrorCode
 
 EXTRACT = "/api/v1/extract"
@@ -17,7 +18,9 @@ def test_health_reports_loaded_model(client):
     body = res.json()
     assert body["status"] == "ok"
     assert body["models_loaded"] is True  # lifespan 워밍업이 끝난 상태
-    assert "ecapa" in body["model"].lower()
+    # 모델명을 고정하지 않는다 — 백엔드는 교체 가능한 설정이다
+    assert body["model"] == get_settings().embedding_model
+    assert body["embedding_backend"] in ("speechbrain", "wespeaker")
 
 
 def test_extract_returns_embedding_and_audio_info(client, speech_wav_bytes):
@@ -28,8 +31,9 @@ def test_extract_returns_embedding_and_audio_info(client, speech_wav_bytes):
     body = res.json()
 
     assert body["status"] == "success"
-    assert body["embedding"]["dim"] == 192
-    assert len(body["embedding"]["vector"]) == 192
+    expected_dim = get_settings().embedding_dim
+    assert body["embedding"]["dim"] == expected_dim
+    assert len(body["embedding"]["vector"]) == expected_dim
     assert body["embedding"]["l2_normalized"] is True
     assert np.linalg.norm(body["embedding"]["vector"]) == pytest.approx(1.0, abs=1e-5)
 

@@ -52,7 +52,9 @@ def extract_all(
         return {k: data[k] for k in data.files}
 
     settings = get_settings()
-    embedding_svc.warmup(settings.embedding_model, settings.model_cache_dir)
+    embedding_svc.warmup(
+        settings.embedding_model, settings.model_cache_dir, backend=settings.embedding_backend
+    )
 
     out: dict[str, np.ndarray] = {}
     skipped = 0
@@ -78,7 +80,10 @@ def extract_all(
                 continue
 
         emb = embedding_svc.extract(
-            samples, model_name=settings.embedding_model, cache_dir=settings.model_cache_dir
+            samples,
+            model_name=settings.embedding_model,
+            cache_dir=settings.model_cache_dir,
+            backend=settings.embedding_backend,
         )
         out[utt.key] = np.asarray(emb.vector, dtype=np.float32)
 

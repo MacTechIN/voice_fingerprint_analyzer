@@ -16,16 +16,20 @@ pytestmark = pytest.mark.usefixtures("client")  # 모델 적재를 세션 픽스
 def _extract(samples):
     s = get_settings()
     return embedding_svc.extract(
-        samples, model_name=s.embedding_model, cache_dir=s.model_cache_dir
+        samples,
+        model_name=s.embedding_model,
+        cache_dir=s.model_cache_dir,
+        backend=s.embedding_backend,
     )
 
 
 def test_embedding_shape_and_metadata():
-    """ECAPA-TDNN은 192차원 벡터를 만들고, 출처 메타데이터가 함께 온다."""
+    """설정된 차원의 벡터를 만들고, 출처 메타데이터가 함께 온다."""
+    expected_dim = get_settings().embedding_dim
     emb = _extract(synth_speech(3.0))
 
-    assert emb.dim == 192
-    assert len(emb.vector) == 192
+    assert emb.dim == expected_dim
+    assert len(emb.vector) == expected_dim
     assert emb.model == get_settings().embedding_model
     assert emb.l2_normalized is True
     assert all(np.isfinite(emb.vector))

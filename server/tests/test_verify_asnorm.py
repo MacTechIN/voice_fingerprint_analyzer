@@ -34,9 +34,13 @@ def with_cohort(fresh_storage):
     from app.db import session as db_session
     from app.services.asnorm import CohortIndex
 
+    from app.config import get_settings
+
+    settings = get_settings()
     rng = np.random.default_rng(42)
-    matrix = rng.normal(size=(120, 192)).astype(np.float32)
-    index = CohortIndex(matrix, model="speechbrain/spkrec-ecapa-voxceleb", top_k=40)
+    # 코호트 차원은 현재 임베딩 차원과 반드시 같아야 한다 — 다르면 내적이 깨진다
+    matrix = rng.normal(size=(120, settings.embedding_dim)).astype(np.float32)
+    index = CohortIndex(matrix, model=settings.embedding_model, top_k=40)
 
     original = db_session._cohort
     db_session._cohort = index
@@ -154,7 +158,7 @@ def test_cohort_seeding_and_loading_roundtrip(fresh_storage):
 
     rng = np.random.default_rng(5)
     entries = [
-        (rng.normal(size=192).astype(np.float32).tolist(), "test-model", f"spk{i}")
+        (rng.normal(size=192).astype(np.float32).tolist(), "test-model", f"spk{i}")  # 차원은 저장소와 무관
         for i in range(30)
     ]
 

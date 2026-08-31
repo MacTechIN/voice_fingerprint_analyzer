@@ -18,6 +18,7 @@ from app.core.errors import AudioRejected
 from app.db import session as db_session
 from app.schemas import ErrorResponse
 from app.services import embedding as embedding_svc
+from app.services import enhance as enhance_svc
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,8 +50,18 @@ async def lifespan(app: FastAPI):
 
     if settings.warmup_on_startup:
         logger.info("모델 워밍업 시작")
+        if settings.enhance_enabled:
+            try:
+                enhance_svc.warmup()
+            except Exception:
+                logger.exception("음성 향상 모델 적재 실패 — 첫 요청 시 재시도한다")
         try:
-            embedding_svc.warmup(settings.embedding_model, settings.model_cache_dir)
+            embedding_svc.warmup(
+                settings.embedding_model,
+                settings.model_cache_dir,
+                backend=settings.embedding_backend,
+                onnx_threads=settings.onnx_intra_op_threads,
+            )
             logger.info("모델 워밍업 완료")
         except Exception:
             # 워밍업 실패로 서버를 죽이지는 않는다. 첫 요청에서 재시도되며,
