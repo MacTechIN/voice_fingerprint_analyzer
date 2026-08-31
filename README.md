@@ -20,3 +20,4 @@
 | [08_OpenSource_Survey](docs/08_OpenSource_Survey.md) | **오픈소스 전수 조사 (GitHub API 실측)** — 채택 스택·라이선스 리스크 |
 | [09_BEF2.0_Integration](docs/09_BEF2.0_Integration.md) | BEF2.0 청크 처리 방식 도입 검토 체크리스트 (**미확정**) |
 | 음성 분리 및 화자 대조 (md/pdf) | 기반 심층 기술 연구 보고서 (수식 원본 참조용) |
+| [chunked-preprocess-pattern](docs/chunked-preprocess-pattern.md) | 청크 선처리·재사용 패턴 (SEP v2/LEP v2) — **보관 자료, 향후 성능 개선용** |
