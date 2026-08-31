@@ -30,19 +30,24 @@ $$\text{SI-SNR} = 10\log_{10}\frac{\lVert\alpha s\rVert^2}{\lVert\hat{s}-\alpha 
 **모델 선정 기준:**
 | 시나리오 | 권장 모델 | 근거 |
 | :--- | :--- | :--- |
-| 오프라인 고정밀 (포렌식급) | SepFormer / MossFormer | WSJ0-2mix SOTA(SI-SNRi 22.3dB)급 정확도. 단, 어텐션의 2차 복잡도로 자원 소모 큼 |
-| 실시간·장시간 스트리밍 | Mamba-TasNet (SSM) / RE-SepFormer | 시퀀스 길이에 선형 복잡도, 메모리 효율 |
+| **기본 채택 (Phase 7)** | **MossFormer2-SS** (ClearerVoice-Studio, Apache-2.0) | 분리·향상·TSE를 한 툴킷에서 제공해 통합 비용 최소. 16kHz 사전학습 모델이 본 시스템 샘플레이트와 일치 |
+| 프레임워크 통일 시 대안 | SepFormer (SpeechBrain) | 화자 검증(ECAPA-TDNN)까지 동일 프레임워크로 묶을 수 있음. WSJ0-2mix SI-SNRi 22.3dB |
 | 에지·저대역 백엔드 | Codecformer-EL | 신경 오디오 코덱 임베딩 도메인 분리로 연산 2배+ 절감 |
+| ~~실시간 선형 복잡도~~ | ~~Mamba-TasNet / SPMamba~~ | **채택 보류** — 공개 구현이 `mamba-ssm`의 CUDA 커널에 의존하여 **CPU 추론 불가**하고 연구코드 수준. 서버가 GPU 상시 확보 시 재평가 |
+
+> **선정 근거:** 상세 실측 비교(스타·라이선스·최근 활동·CPU 추론 가능성)는 [08_OpenSource_Survey.md](08_OpenSource_Survey.md) 3장 참조.
 
 *   **긴 오디오 처리:** 연속 음성 분리(CSS) 슬라이딩 윈도우 기법 적용. 윈도우 겹침 구간 유사도로 화자 추적 (긴 침묵 시 추적 단절 한계 인지).
-*   **대안 설계 (권장):** 등록된 타겟 화자의 레퍼런스 임베딩을 분리망에 조건으로 주입하는 **타겟 화자 추출(TSE, Target Speaker Extraction)** 방식 — 순열 문제를 원천 회피하고 비타겟 화자·노이즈를 억압하여 검증 모듈 부담 경감.
+*   **대안 설계 (권장):** 등록된 타겟 화자의 레퍼런스 임베딩을 분리망에 조건으로 주입하는 **타겟 화자 추출(TSE, Target Speaker Extraction)** 방식 — 순열 문제를 원천 회피하고 비타겟 화자·노이즈를 억압하여 검증 모듈 부담 경감. 구현체로 `wenet-e2e/wesep`(BSRNN/TF-GridNet + WeSpeaker 임베딩 joint training)이 개념적으로 가장 부합하나, **저장소에 라이선스 파일이 없어 채택 전 확인이 필수**다.
 
 ## 3. 서버 사이드: 딥러닝 화자 인증 모델
 
 ### 3.1 임베딩 백본
-*   **프로토타입 (Phase A):** ECAPA-TDNN (SpeechBrain, 192차원 임베딩) 또는 Resemblyzer(256차원). ECAPA-TDNN은 1D Res2Net + SE 채널 어텐션 기반의 사실상 표준 베이스라인으로, 노이즈에 강건하고 개방형 집합(Open-set) 성능 우수.
-*   **확장 (Phase C 이후 교체):** **ERes2NetV2** (3D-Speaker) — 음성 분리 출력물이 2~3초 미만으로 분절되는 **단기 발화(Short-duration) 성능 저하 문제**를 다중 스케일 국소/전역 특징 융합으로 방어 (VoxCeleb1-O EER 0.61%). 에지·대규모 화자 환경에는 저연산 CAM++, 다국어 환경에는 Whisper-PMFA를 대안으로 검토.
-*   **추론 엔진:** PyTorch 기반. 추후 트래픽 증가 시 NVIDIA Triton Inference Server 도입으로 동시 처리량(Throughput) 극대화.
+*   **프로토타입 (Phase A):** ECAPA-TDNN (SpeechBrain, 192차원 임베딩). 1D Res2Net + SE 채널 어텐션 기반의 사실상 표준 베이스라인으로, 노이즈에 강건하고 개방형 집합(Open-set) 성능이 우수하며 `SpeakerRecognition.from_hparams()` 한 줄로 검증 데모 구성이 가능해 착수 속도가 가장 빠르다.
+    *   ~~Resemblyzer~~는 **비권장** — 2023-10 이후 개발이 사실상 중단되었고 GE2E d-vector 구세대 정확도라 프로덕션 후보에서 제외한다.
+*   **본구축 (Phase B 전환):** **WeSpeaker** (`wenet-e2e/wespeaker`, Apache-2.0) — 훈련부터 AS-Norm/PLDA/캘리브레이션(`bin/score_norm.py`), ONNX export, C++ onnxruntime 런타임, Triton GPU 서버까지 한 저장소에서 완결되는 유일한 프로덕션 지향 툴킷. SpeechBrain은 AS-Norm과 서빙이 없으므로 Phase 6 시점에 코어를 WeSpeaker로 전환한다.
+*   **확장 (Phase C 이후 모델 교체):** **ERes2NetV2** (3D-Speaker) — 음성 분리 출력물이 2~3초 미만으로 분절되는 **단기 발화(Short-duration) 성능 저하 문제**를 다중 스케일 국소/전역 특징 융합으로 방어 (VoxCeleb1-O EER 0.61%). 에지·대규모 화자 환경에는 저연산 CAM++, 다국어 환경에는 Whisper-PMFA를 대안으로 검토. 단 3D-Speaker에는 AS-Norm 스크립트가 없으므로 **정규화는 WeSpeaker 구현을 이식**한다.
+*   **추론 엔진:** PyTorch 기반. 배포 계층으로 `k2-fsa/sherpa-onnx`(WeSpeaker/3D-Speaker ONNX 모델을 다언어·websocket으로 서빙) 검토, 트래픽 증가 시 NVIDIA Triton Inference Server 도입으로 동시 처리량(Throughput) 극대화.
 
 ### 3.2 손실 함수 (파인튜닝 시 적용 기준)
 사전학습 모델을 자체 데이터로 파인튜닝할 경우, 열린 집합 검증 성능을 위해 가산 각도 마진 손실(ArcFace/AAM)을 표준으로 채택한다. 임베딩과 클래스 중심 벡터를 $\ell_2$ 정규화해 스케일 $s$의 초구(Hypersphere)에 고정하고, 타겟 클래스 각도 $\theta_{y_i}$에 마진 $m$을 가산한다:
@@ -71,12 +76,24 @@ $$S_{AS\text{-}Norm} = \frac{1}{2}\left(\frac{S(e,t)-\mu_{cohort}(e)}{\sigma_{co
 3.  **결합 종단간 학습(EEND-SS, 장기):** 분리·식별·화자 수 카운팅을 단일 멀티태스크 프레임워크로 공동 최적화 (대규모 학습 인프라 확보 시).
 
 ## 5. 서버 사이드: 딥페이크 탐지 (Anti-Spoofing, Phase D)
-*   **아키텍처:** **AASIST** (스펙트로-템포럴 그래프 어텐션) 기반. 고도화 옵션으로 SSL 프론트엔드 결합형 PT-SSL-AASIST(Wav2Vec 2.0 XLS-R + 웨이블릿 프롬프트 튜닝, EER ~3.58%) 또는 KAN 적용 AASIST3.
+
+**2단 캐스케이드 구성**을 채택한다 — 전체 요청에 무거운 SSL 모델을 적용하면 응답 지연 예산을 초과하기 때문이다.
+
+| 단계 | 모델 | 라이선스 | 성능 | 적용 범위 |
+| :--- | :--- | :--- | :--- | :--- |
+| 1차 스크리닝 | **AASIST-L** (`clovaai/aasist`) | MIT | ASVspoof2019 LA EER 0.99% (85K 파라미터, CPU 실시간) | 전체 요청 |
+| 2차 정밀 판정 | **XLSR + AASIST** (`TakHemlata/SSL_Anti-spoofing`) | MIT | ASVspoof2021 LA EER 0.82%, DF 2.85% | 1차 의심 샘플만 |
+
 *   **배치 위치:** 검증 파이프라인 초입에 병렬 배치 — 임베딩 추출 이전에 합성 음성(LA 공격)을 1차 차단하고 `spoof_score`를 감사 로그에 기록.
-*   **지속 검증:** Speech DF Arena 등 다중 데이터셋 벤치마크로 EER·F1 정기 점검.
+*   **통합 유의사항:** SSL_Anti-spoofing 원본은 고정 커밋 fairseq / torch 1.8에 의존한다. 본 프로젝트는 **추론만 필요**하므로 프론트엔드를 HuggingFace `transformers`의 `wav2vec2-xls-r-300m`으로 교체하는 경량 포팅을 권장한다.
+*   **라이선스 배제:** ~~AASIST3(KAN 적용)~~는 공개 구현(`lab260ru/AASIST3`)이 **CC BY-NC-ND 4.0**으로 상용 이용과 파생물 제작이 모두 금지되어 **채택 불가**하다. SpeechBrain에는 anti-spoofing 레시피가 존재하지 않으므로(recipes 전수 확인) 이 단계에서는 사용할 수 없다.
+*   **지속 검증:** 채택 전 `MuSAELab/AUDDT`(33개 딥페이크 데이터셋 통합 평가)로 자사 오디오 조건(코덱·샘플레이트)의 교차 데이터셋 일반화를 검증하고, `asvspoof-challenge/2021` eval-package로 t-DCF/EER 표준 지표를 산출한다.
 
 ## 6. 백엔드 및 인프라 사양
 *   **클라우드 호스팅:** Google Cloud Platform (GCP) Cloud Run 또는 Compute Engine (사용자 선호 및 확장성 고려).
-*   **Database:** Supabase (PostgreSQL + pgvector 확장) - 사용자 메타데이터 및 임베딩 벡터 관리. 벡터 차원은 채택 모델에 종속 (ECAPA-TDNN/ERes2NetV2: 192, Resemblyzer: 256) — 스키마에 차원·모델 버전 컬럼을 함께 기록하여 모델 교체 시 재등록(Re-enrollment) 마이그레이션 지원.
+*   **Database:** Supabase (PostgreSQL + pgvector 확장) - 사용자 메타데이터 및 임베딩 벡터 관리. 벡터 차원은 채택 모델에 종속 (ECAPA-TDNN/ERes2NetV2: 192) — 스키마에 차원·모델 버전 컬럼을 함께 기록하여 모델 교체 시 재등록(Re-enrollment) 마이그레이션 지원.
+    *   **인덱스:** 화자 수 10만 미만 규모에서는 HNSW 인덱스 + 코사인 거리로 충분. 사용자 계정·인증 로그·임베딩을 단일 트랜잭션으로 다룰 수 있다는 점이 전용 벡터 DB(Qdrant/Milvus) 대비 결정적 이점이므로 pgvector를 유지하고, 수백만 화자 규모에 도달할 때만 재검토한다.
+    *   **접근 라이브러리:** `pgvector-python` (asyncpg/SQLAlchemy 바인딩)으로 FastAPI 비동기 경로와 통합.
 *   **코호트 테이블:** AS-Norm용 임포스터 임베딩 별도 테이블 (사용자 DB와 격리).
-*   **오케스트레이션 툴킷:** WeSpeaker(AS-Norm·PLDA 내장) 및 3D-Speaker(온라인 특징 추출) 오픈소스 인프라 활용, 프로토타이핑은 SpeechBrain.
+*   **오케스트레이션 툴킷:** WeSpeaker(AS-Norm·PLDA·캘리브레이션 내장, ONNX·Triton 서빙 완비) 및 3D-Speaker(ERes2NetV2·CAM++ 사전학습 공급, 온라인 특징 추출) 오픈소스 인프라 활용, 프로토타이핑은 SpeechBrain.
+*   **참조 구현 부재 인지:** FastAPI + 화자검증 + pgvector를 한 번에 묶은 신뢰할 만한 오픈소스 저장소는 존재하지 않는다(조사 확인). SpeechBrain(임베딩) + pgvector-python(검색) + Supabase RPC 코사인 검색 패턴을 직접 조합해야 하므로 초기 개발 공수를 여기에 배정한다. `yeyupiaoling/VoiceprintRecognition-Pytorch`는 서버 코드를 포함하지 않으므로 학습·추론 파이프라인 참조용으로만 사용한다.

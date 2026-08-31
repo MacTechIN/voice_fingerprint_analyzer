@@ -17,4 +17,5 @@
 | [05_Functional_Requirements](docs/05_Functional_Requirements.md) | 기능 요구사항 FR-01~FR-18 (Phase A~D) |
 | [06_Development_Plan](docs/06_Development_Plan.md) | Phase 1~8 개발 계획 및 리스크 대응 |
 | [07_GitHub_Tech_Stack](docs/07_GitHub_Tech_Stack.md) | 오픈소스 스택 선정 및 단계 매핑 |
+| [08_OpenSource_Survey](docs/08_OpenSource_Survey.md) | **오픈소스 전수 조사 (GitHub API 실측)** — 채택 스택·라이선스 리스크 |
 | 음성 분리 및 화자 대조 (md/pdf) | 기반 심층 기술 연구 보고서 (수식 원본 참조용) |
