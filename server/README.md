@@ -215,6 +215,7 @@ VG_DATABASE_URL="postgresql://..." .venv/bin/python -m eval.seed_cohort --replac
 | `VG_SEPARATION_ENABLED` | `false` | 다중 화자 분리 (검증 경로 전용, 기본 비활성) |
 | `VG_SEPARATION_MODEL` | `speechbrain/sepformer-whamr16k` | 분리 모델 (16kHz) |
 | `VG_TORCH_NUM_THREADS` | `0` | PyTorch 스레드 수. 0이면 기본값 |
+| `VG_MAX_CONCURRENT_INFERENCE` | `4` | 동시 추론 상한. 초과분은 대기 (0이면 무제한) |
 | `VG_ANTISPOOF_ENABLED` | `false` | 딥페이크 탐지 (**보안 배포에서는 반드시 켤 것**) |
 | `VG_ANTISPOOF_THRESHOLD` | `0.7` | spoof 확률 차단 임계값 |
 | `VG_ANTISPOOF_WEIGHTS` | `./.model_cache/AASIST-L.pth` | AASIST-L 가중치 경로 |
@@ -340,6 +341,34 @@ export VG_ANTISPOOF_ENABLED=true
 > **⚠ 긴 오디오 주의:** 구간별 최댓값으로 집계하므로 구간이 많을수록 오탐이
 > 늘 수 있다. 평가 세트 평균이 3.5초(대부분 1구간)라 이 위험이 충분히 측정되지
 > 않았다. **배포 전 자사 오디오 길이 분포로 재측정할 것.**
+
+## 성능 (Phase 5)
+
+5초 오디오, 24코어 CPU 기준 실측:
+
+| 단계 | 소요 |
+| :--- | ---: |
+| 임베딩 (WeSpeaker ONNX) | 47.2ms |
+| VAD (Silero ONNX) | 39.9ms |
+| 디코딩·스코어링 | 0.5ms |
+| **합계** | **87.6ms** |
+
+| 동시 요청 | 처리량 | p50 |
+| ---: | ---: | ---: |
+| 1 | 6.9 req/s | 125ms |
+| 4 | 14.1 req/s | 267ms |
+| **8** | **18.5 req/s** | 371ms |
+| 16 | 15.6 req/s | 997ms |
+
+동시 추론 상한(기본 4)을 두어 초과 요청은 대기열에서 기다린다 — 모두 함께
+느려지는 대신 처리 중인 요청이 빠르게 끝나 꼬리 지연이 예측 가능해진다.
+다른 코어 수에서는 `python -m eval.bench`로 포화 지점을 다시 측정한다.
+
+### 업로드 포맷
+
+서버는 soundfile이 지원하는 포맷을 모두 디코딩한다. **FLAC을 권장**한다 —
+무손실이라 임베딩이 비트 단위로 같으면서 WAV보다 39% 작다(5초 기준 151KB → 92KB).
+OGG 등 손실 압축은 성문에 영향을 줄 수 있어 쓰지 않는다.
 
 ## 다음 단계
 

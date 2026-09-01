@@ -34,26 +34,50 @@ def _preserve_torch_threads():
         if torch.get_num_threads() != before:
             torch.set_num_threads(before)
 
-_model = None
+# silero-vad의 TorchScript 모델은 **내부에 RNN 상태를 들고 있다**(`self._state`).
+# 하나의 인스턴스를 여러 스레드가 동시에 쓰면 상태가 깨져 추론이 실패한다 —
+# 실측: 동시 요청 4건 중 2건이 500으로 떨어졌다.
+#
+# 스레드마다 별도 인스턴스를 둬 격리한다. 락으로 직렬화하면 VAD가 파이프라인의
+# 60%를 차지하는 만큼 처리량이 그대로 막히고, 모델이 약 2MB라 스레드당 비용은
+# 작다.
+_thread_local = threading.local()
 _get_speech_timestamps = None
 _load_lock = threading.Lock()
 
 
-def _ensure_loaded() -> None:
-    """VAD 모델을 지연 적재한다 (프로세스당 1회)."""
-    global _model, _get_speech_timestamps
-    if _model is not None:
-        return
+#: ONNX 런타임을 쓸지 여부. JIT 대비 2배 빠르고(5초 오디오 53.2ms → 26.0ms)
+#: 검출 결과는 동일하다(LibriSpeech 6개 발화에서 구간 수·길이 완전 일치).
+#: VAD가 파이프라인의 약 60%를 차지하므로 체감 차이가 크다.
+USE_ONNX = True
+
+
+def _ensure_loaded():
+    """호출 스레드용 VAD 모델을 지연 적재한다.
+
+    모델 파일은 최초 1회만 내려받고 이후 캐시를 읽으므로, 스레드별 적재는
+    디스크에서 모델을 읽는 정도로 빠르다.
+    """
+    global _get_speech_timestamps
+
+    model = getattr(_thread_local, "model", None)
+    if model is not None:
+        return model
+
+    # 적재 자체는 라이브러리 전역 상태를 건드리므로 직렬화한다
     with _load_lock:
-        if _model is not None:  # 락 대기 중 다른 스레드가 적재했을 수 있다
-            return
         from silero_vad import get_speech_timestamps, load_silero_vad
 
-        logger.info("Silero VAD 모델 적재 중")
-        model = load_silero_vad()
+        logger.info(
+            "Silero VAD 모델 적재 중 (스레드 %s, %s)",
+            threading.current_thread().name,
+            "ONNX" if USE_ONNX else "JIT",
+        )
+        model = load_silero_vad(onnx=USE_ONNX)
         _get_speech_timestamps = get_speech_timestamps
-        _model = model
-        logger.info("Silero VAD 모델 적재 완료")
+
+    _thread_local.model = model
+    return model
 
 
 @dataclass(frozen=True)
@@ -107,10 +131,14 @@ def apply(
     # 없지만, 같은 프로세스의 음성 분리 추론이 4배 느려진다(6초 오디오 기준
     # 7.3초 → 28초). VAD 전후로 스레드 수를 보존한다.
     with _preserve_torch_threads():
-        _ensure_loaded()
+        model = _ensure_loaded()
+        # 직전 요청이 남긴 RNN 상태가 이번 판정에 섞이지 않게 초기화한다.
+        # 스레드별 인스턴스를 써도 같은 스레드가 요청을 이어 받으므로 필요하다.
+        if hasattr(model, "reset_states"):
+            model.reset_states()
         timestamps = _get_speech_timestamps(
             torch.from_numpy(samples),
-            _model,
+            model,
             sampling_rate=sample_rate,
             threshold=threshold,
             min_silence_duration_ms=min_silence_ms,

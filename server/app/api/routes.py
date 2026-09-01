@@ -43,6 +43,30 @@ from app.services import vad as vad_svc
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
+# 추론 동시 실행 상한. CPU 바운드 작업이라 무제한으로 풀면 처리량은 그대로인데
+# 지연만 늘어난다 (config.max_concurrent_inference 주석의 실측 참조).
+# 기동 시 설정값으로 초기화한다.
+_inference_slots: anyio.Semaphore | None = None
+
+
+def configure_inference_limit(limit: int) -> None:
+    """추론 동시 실행 상한을 설정한다 (기동 시 1회)."""
+    global _inference_slots
+    _inference_slots = anyio.Semaphore(limit) if limit > 0 else None
+
+
+async def _run_inference(func, *args, **kwargs):
+    """추론을 워커 스레드에서 실행하되 동시 실행 수를 제한한다.
+
+    세마포어를 스레드 진입 **전에** 잡는다. 스레드를 먼저 띄우고 안에서 기다리면
+    스레드만 쌓여 메모리와 스케줄링 비용이 든다.
+    """
+    call = functools.partial(func, *args, **kwargs)
+    if _inference_slots is None:
+        return await anyio.to_thread.run_sync(call)
+    async with _inference_slots:
+        return await anyio.to_thread.run_sync(call)
+
 
 @dataclass(frozen=True)
 class _Analyzed:
@@ -237,7 +261,7 @@ async def extract(
     """
     started = time.perf_counter()
     raw = await _read_upload(file, settings)
-    analyzed = await anyio.to_thread.run_sync(_analyze, raw, settings)
+    analyzed = await _run_inference(_analyze, raw, settings)
 
     return ExtractResponse(
         audio=analyzed.audio,
@@ -266,7 +290,7 @@ async def enroll(
     """
     started = time.perf_counter()
     raw = await _read_upload(file, settings)
-    analyzed = await anyio.to_thread.run_sync(_analyze, raw, settings)
+    analyzed = await _run_inference(_analyze, raw, settings)
 
     replaced = 0
     if settings.enroll_replaces_existing:
@@ -378,8 +402,8 @@ async def verify(
     reference = usable[0].embedding if settings.separation_enabled else None
 
     try:
-        analyzed = await anyio.to_thread.run_sync(
-            functools.partial(_analyze, raw, settings, reference_embedding=reference)
+        analyzed = await _run_inference(
+            _analyze, raw, settings, reference_embedding=reference
         )
     except AudioRejected as exc:
         outcome = (

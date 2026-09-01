@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from app.api.admin import router as admin_router
-from app.api.routes import router
+from app.api.routes import configure_inference_limit, router
 from app.config import get_settings
 from app.core.errors import AudioRejected
 from app.db import session as db_session
@@ -53,6 +53,10 @@ async def lifespan(app: FastAPI):
     # 저장소는 실패하면 기동을 중단한다. 모델 워밍업과 달리 저장소 없이는
     # 등록·검증이 아예 성립하지 않으므로, 반쯤 동작하는 서버를 띄우는 것보다
     # 즉시 실패하는 편이 낫다.
+    configure_inference_limit(settings.max_concurrent_inference)
+    if settings.max_concurrent_inference > 0:
+        logger.info("추론 동시 실행 상한: %d", settings.max_concurrent_inference)
+
     await db_session.init(settings.database_url or None)
 
     # AS-Norm 코호트 적재. 비어 있으면 원시 코사인으로 폴백하며, 그 사실은
