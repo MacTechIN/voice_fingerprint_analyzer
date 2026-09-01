@@ -53,7 +53,14 @@ logger = logging.getLogger(__name__)
 DATA_DIR = Path(__file__).resolve().parent.parent / ".data"
 
 #: 코호트 상위 K개. Phase 6에서 정한 운영값과 같게 둔다.
+#:
+#: **코호트가 이보다 작으면 AS-Norm이 아니게 된다.** 상위 K를 적응적으로 고르는
+#: 것이 AS-Norm의 핵심인데, K가 코호트 크기 이상이면 전체를 쓰게 되어 그냥
+#: 평균·표준편차 정규화가 된다. 아래에서 이 조건을 검사한다.
 TOP_K = 200
+
+#: 코호트가 top_k의 몇 배는 되어야 적응적 선택이 의미를 갖는다.
+MIN_COHORT_RATIO = 1.5
 
 
 def _normalize_rows(matrix: np.ndarray) -> np.ndarray:
@@ -186,17 +193,9 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
             if vec is not None:
                 enroll_cache[t.enroll_key] = vec
 
-    impostor_key = None
     for i, t in enumerate(trials, 1):
         enroll = enroll_cache.get(t.enroll_key)
         if enroll is None:
-            continue
-        if impostor_key is None or by_key[impostor_key].speaker == t.target_speaker:
-            impostor_key = next(
-                (k for k in enroll_cache if by_key[k].speaker != t.target_speaker), None
-            )
-        impostor = enroll_cache.get(impostor_key) if impostor_key else None
-        if impostor is None:
             continue
 
         clean_probe = embed(t.clean)
@@ -208,12 +207,23 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
         if clean_probe is None or sep_probe is None:
             continue
 
-        # genuine / impostor 두 쌍을 같은 오디오 조건에서 만든다
-        for reference, label in ((enroll, 1), (impostor, 0)):
-            enroll_vecs.append(reference)
+        # genuine 1건 + **다른 모든 화자를 impostor로** 사용한다.
+        #
+        # 분리 추론이 트라이얼당 약 7초로 비싼 반면, 같은 probe를 여러 등록
+        # 임베딩과 대조하는 것은 내적 한 번이다. impostor를 1건만 쓰면 EER
+        # 해상도가 1/트라이얼수로 묶여(40건이면 2.5%p) 코호트 차이를 잴 수 없다.
+        enroll_vecs.append(enroll)
+        clean_probes.append(clean_probe)
+        separated_probes.append(sep_probe)
+        labels.append(1)
+
+        for key, vec in enroll_cache.items():
+            if by_key[key].speaker == t.target_speaker:
+                continue
+            enroll_vecs.append(vec)
             clean_probes.append(clean_probe)
             separated_probes.append(sep_probe)
-            labels.append(label)
+            labels.append(0)
 
         if i % 10 == 0:
             logger.info("트라이얼 %d/%d", i, len(trials))
@@ -229,6 +239,22 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
         "clean": _normalize_rows(np.stack(clean_cohort)) if clean_cohort else None,
         "separated": _normalize_rows(np.stack(separated_cohort)) if separated_cohort else None,
     }
+
+    # --- 측정이 결론을 낼 수 있는 조건인지 먼저 확인 ---
+    #
+    # 이 실험은 조건 간 EER 차이를 보는 것이 목적이다. 표본이 적어 해상도가
+    # 차이보다 크면 어떤 숫자가 나오든 해석할 수 없다. 그런 상태로 결과를
+    # 보고하면 없는 효과를 있다고 읽게 된다.
+    warnings: list[str] = []
+    smallest_cohort = min(
+        len(c) for c in (clean_cohort, separated_cohort) if c
+    ) if (clean_cohort or separated_cohort) else 0
+    if smallest_cohort < TOP_K * MIN_COHORT_RATIO:
+        warnings.append(
+            f"코호트({smallest_cohort}개)가 top_k({TOP_K})에 비해 작다. "
+            f"상위 K 적응 선택이 사실상 무력화되어 운영 설정(코호트 310/K 200)과 "
+            f"다른 것을 재게 된다. --cohort-speakers를 늘리거나 TOP_K를 낮출 것."
+        )
 
     results: dict[str, dict] = {}
     for probe_name, probe_m in probes.items():
@@ -248,21 +274,41 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
                 "separation": m.separation,
             }
 
+    # 관측된 차이가 해상도보다 작으면 결론을 낼 수 없다
+    resolution = 1 / min((y == 1).sum(), (y == 0).sum())
+    sep_row = results.get("separated", {})
+    if len(sep_row) >= 2:
+        eers = [v["eer"] for v in sep_row.values()]
+        spread = max(eers) - min(eers)
+        if spread < resolution:
+            warnings.append(
+                f"분리 조건의 EER 차이({spread*100:.2f}%p)가 해상도"
+                f"({resolution*100:.2f}%p)보다 작다. **어느 쪽이 낫다고 말할 수 없다.** "
+                f"--per-speaker를 늘려 genuine 트라이얼을 확보할 것."
+            )
+
     report = {
         "backend": settings.embedding_backend,
         "model": settings.embedding_model,
         "separation_model": settings.separation_model,
-        "trials": int(len(y) // 2),
+        "genuine_trials": int((y == 1).sum()),
+        "impostor_trials": int((y == 0).sum()),
+        "eer_resolution": float(1 / min((y == 1).sum(), (y == 0).sum())),
         "cohort_size": {"clean": len(clean_cohort), "separated": len(separated_cohort)},
         "top_k": TOP_K,
         "results": results,
+        "warnings": warnings,
+        "conclusive": not warnings,
     }
     path = DATA_DIR / "separation_cohort_eval.json"
     path.write_text(json.dumps(report, indent=2, ensure_ascii=False))
 
     print("\n" + "=" * 72)
     print("분리 경로 AS-Norm 코호트 비교")
-    print(f"트라이얼 {len(y)//2}건 · 코호트 깨끗 {len(clean_cohort)}개 / 분리 {len(separated_cohort)}개")
+    resolution = 1 / min((y == 1).sum(), (y == 0).sum())
+    print(f"genuine {(y==1).sum()}건 / impostor {(y==0).sum()}건 "
+          f"· 코호트 깨끗 {len(clean_cohort)}개 / 분리 {len(separated_cohort)}개")
+    print(f"EER 해상도 {resolution*100:.2f}%p — 이보다 작은 차이는 구분할 수 없다")
     print("-" * 72)
     print(f"{'검증 조건':<14}{'정규화 없음':>14}{'깨끗한 코호트':>16}{'분리 코호트':>14}")
     print("-" * 72)
@@ -281,6 +327,10 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
         verdict = "개선" if b < a else ("악화" if b > a else "동일")
         print(f"분리 경로에서 코호트를 맞춘 효과: EER {a*100:.2f}% → {b*100:.2f}% ({delta:+.1f}%, {verdict})")
     print("=" * 72)
+    if warnings:
+        print("\n⚠ 이 측정은 결론을 낼 수 없다:")
+        for w in warnings:
+            print(f"  - {w}")
     print(f"\n보고서: {path}")
 
 
