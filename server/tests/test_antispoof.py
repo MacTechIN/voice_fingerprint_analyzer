@@ -134,6 +134,23 @@ class TestDetection:
 
 
 class TestConfig:
+    def test_threshold_is_domain_robust(self):
+        """기본 임계값이 도메인 밖 오탐을 막을 만큼 보수적인지.
+
+        AASIST-L은 ASVspoof(VCTK) bonafide에 맞춰 학습돼 다른 녹음 조건의 진짜
+        음성을 위조로 오인한다 — 구간별 오탐률이 1.0%에서 13.3%로 뛴다. 여기에
+        구간별 최댓값 집계가 곱해져, 임계값 0.7은 LibriSpeech 20초 발화의 75%를
+        차단했다.
+
+        0.999 미만으로 낮추려면 **배포 환경 오디오로 재캘리브레이션했다는 근거**가
+        있어야 한다.
+        """
+        from app.config import Settings
+
+        assert Settings().antispoof_threshold >= 0.999, (
+            "도메인 밖 오탐을 막으려면 기본 임계값이 0.999 이상이어야 한다"
+        )
+
     def test_disabled_by_default(self):
         """가중치를 내려받지 않은 환경에서 기동이 실패하지 않도록 기본 비활성이다."""
         from app.config import Settings
