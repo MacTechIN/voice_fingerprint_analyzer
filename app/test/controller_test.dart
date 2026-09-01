@@ -22,11 +22,13 @@ class FakeRecorder implements AudioRecorderService {
     this.permitted = true,
     this.duration = const Duration(seconds: 4),
     this.failToProduceFile = false,
+    this.format = UploadFormat.flac,
   });
 
   final bool permitted;
   final Duration duration;
   final bool failToProduceFile;
+  final UploadFormat format;
 
   File? lastFile;
   bool cancelled = false;
@@ -40,6 +42,9 @@ class FakeRecorder implements AudioRecorderService {
 
   @override
   Future<bool> hasPermission() async => permitted;
+
+  @override
+  Future<UploadFormat> resolveFormat() async => format;
 
   @override
   Stream<RecordingProgress> start() {
@@ -65,7 +70,7 @@ class FakeRecorder implements AudioRecorderService {
         '${Directory.systemTemp.path}/vg_fake_${DateTime.now().microsecondsSinceEpoch}.wav')
       ..writeAsBytesSync(List<int>.filled(64, 0));
     lastFile = file;
-    return RecordingResult(file: file, duration: duration);
+    return RecordingResult(file: file, duration: duration, format: format);
   }
 
   @override
@@ -241,6 +246,58 @@ void main() {
       await controller.stopAndSubmit();
 
       expect(controller.state.stage, VoiceStage.idle);
+    });
+  });
+
+  group('업로드 포맷', () {
+    test('녹음 포맷이 업로드에 그대로 반영된다', () async {
+      // FLAC은 무손실이라 임베딩에 영향이 없으면서 업로드가 WAV의 62%다.
+      // 파일명·MIME이 실제 포맷과 어긋나면 프록시·로그를 읽기 어려워진다.
+      String? uploadedName;
+      adapter.onPost(
+        '/api/v1/verify',
+        (server) => server.reply(200, {
+          'status': 'success',
+          'user_id': 'alice',
+          'is_verified': true,
+          'match_probability': 95.4,
+          'raw_cosine': 0.8,
+          'scoring_method': 'raw_cosine',
+          'threshold': 0.3767,
+          'compared_enrollments': 1,
+          'audio': {'speech_duration_sec': 3.5},
+          'elapsed_ms': 116,
+        }),
+        data: Matchers.any,
+      );
+      dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        final form = options.data as FormData;
+        uploadedName = form.files.first.value.filename;
+        handler.next(options);
+      }));
+
+      final controller = makeController(FakeRecorder(format: UploadFormat.flac));
+      await controller.startRecording(RecordingPurpose.verify);
+      await controller.stopAndSubmit();
+
+      expect(controller.state.stage, VoiceStage.success);
+      expect(uploadedName, 'audio.flac');
+    });
+
+    test('WAV 폴백도 그대로 전달된다', () async {
+      String? uploadedName;
+      mockVerifySuccess();
+      dio.interceptors.add(InterceptorsWrapper(onRequest: (options, handler) {
+        final form = options.data as FormData;
+        uploadedName = form.files.first.value.filename;
+        handler.next(options);
+      }));
+
+      final controller = makeController(FakeRecorder(format: UploadFormat.wav));
+      await controller.startRecording(RecordingPurpose.verify);
+      await controller.stopAndSubmit();
+
+      expect(uploadedName, 'audio.wav');
     });
   });
 

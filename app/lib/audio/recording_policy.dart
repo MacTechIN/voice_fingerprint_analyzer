@@ -40,6 +40,26 @@ class RecordingSpec {
   static const double clippingDbfs = -1.5;
 }
 
+/// 업로드 오디오 포맷.
+///
+/// **손실 압축은 쓰지 않는다.** 성문은 생체 정보라 압축 손실이 임베딩을 바꿀 수
+/// 있다. 서버 실측에서 FLAC은 WAV와 `raw_cosine`이 소수점 6자리까지 같았지만
+/// (0.772225), OGG 같은 손실 포맷은 검증하지 않았고 검증할 이유도 없다.
+enum UploadFormat {
+  /// 무손실 압축. WAV의 약 62% 크기(5초 기준 151KB → 92KB).
+  flac('flac', 'audio/flac'),
+
+  /// 비압축. 모든 플랫폼에서 확실히 동작하는 폴백.
+  wav('wav', 'audio/wav');
+
+  const UploadFormat(this.extension, this.mimeType);
+
+  final String extension;
+  final String mimeType;
+
+  String get fileName => 'audio.$extension';
+}
+
 /// 녹음 목적.
 enum RecordingPurpose {
   enroll,

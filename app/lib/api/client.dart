@@ -8,6 +8,7 @@ import 'dart:io';
 
 import 'package:dio/dio.dart';
 
+import '../audio/recording_policy.dart';
 import 'errors.dart';
 import 'models.dart';
 
@@ -49,14 +50,12 @@ class VoiceGuardApi {
   Future<EnrollResult> enroll({
     required String userId,
     required File audio,
+    UploadFormat format = UploadFormat.wav,
   }) async {
     final response = await _send(
       () => _dio.post<Map<String, dynamic>>(
         '$_prefix/enroll',
-        data: FormData.fromMap({
-          'user_id': userId,
-          'file': MultipartFile.fromFileSync(audio.path, filename: 'audio.wav'),
-        }),
+        data: _multipart(userId, audio, format),
       ),
     );
     return EnrollResult.fromJson(response);
@@ -66,17 +65,30 @@ class VoiceGuardApi {
   Future<VerifyResult> verify({
     required String userId,
     required File audio,
+    UploadFormat format = UploadFormat.wav,
   }) async {
     final response = await _send(
       () => _dio.post<Map<String, dynamic>>(
         '$_prefix/verify',
-        data: FormData.fromMap({
-          'user_id': userId,
-          'file': MultipartFile.fromFileSync(audio.path, filename: 'audio.wav'),
-        }),
+        data: _multipart(userId, audio, format),
       ),
     );
     return VerifyResult.fromJson(response);
+  }
+
+  /// 업로드 본문 구성.
+  ///
+  /// 서버는 파일 내용으로 포맷을 판별하므로 파일명·MIME이 틀려도 동작하지만,
+  /// 맞춰 보내는 편이 프록시·로그를 읽기 쉽다.
+  FormData _multipart(String userId, File audio, UploadFormat format) {
+    return FormData.fromMap({
+      'user_id': userId,
+      'file': MultipartFile.fromFileSync(
+        audio.path,
+        filename: format.fileName,
+        contentType: DioMediaType.parse(format.mimeType),
+      ),
+    });
   }
 
   /// 요청 실행과 오류 변환.

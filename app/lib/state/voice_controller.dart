@@ -162,16 +162,18 @@ class VoiceController extends StateNotifier<VoiceState> {
     }
 
     state = state.copyWith(stage: VoiceStage.uploading, clearProgress: true);
-    await _upload(recording.file);
+    await _upload(recording.file, recording.format);
   }
 
-  Future<void> _upload(File file) async {
+  Future<void> _upload(File file, UploadFormat format) async {
     try {
       if (state.purpose == RecordingPurpose.enroll) {
-        final result = await _api.enroll(userId: userId, audio: file);
+        final result =
+            await _api.enroll(userId: userId, audio: file, format: format);
         state = state.copyWith(stage: VoiceStage.success, enrollResult: result);
       } else {
-        final result = await _api.verify(userId: userId, audio: file);
+        final result =
+            await _api.verify(userId: userId, audio: file, format: format);
         state = state.copyWith(stage: VoiceStage.success, verifyResult: result);
       }
     } on ApiException catch (e) {

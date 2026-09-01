@@ -37,10 +37,17 @@ class RecordingProgress {
 
 /// 녹음 결과.
 class RecordingResult {
-  const RecordingResult({required this.file, required this.duration});
+  const RecordingResult({
+    required this.file,
+    required this.duration,
+    this.format = UploadFormat.wav,
+  });
 
   final File file;
   final Duration duration;
+
+  /// 실제로 녹음된 포맷. 업로드 시 파일명·MIME을 맞추는 데 쓴다.
+  final UploadFormat format;
 }
 
 /// 녹음기 인터페이스.
@@ -62,6 +69,9 @@ abstract class AudioRecorderService {
 
   bool get isRecording;
 
+  /// 이번 녹음에 쓸 포맷. 플랫폼이 FLAC을 지원하면 FLAC, 아니면 WAV.
+  Future<UploadFormat> resolveFormat();
+
   Future<void> dispose();
 }
 
@@ -77,11 +87,36 @@ class DeviceAudioRecorder implements AudioRecorderService {
   DateTime? _startedAt;
   String? _path;
 
+  /// 협상된 업로드 포맷. 한 번 정해지면 프로세스 수명 동안 유지한다 —
+  /// 플랫폼의 인코더 지원 여부는 실행 중에 바뀌지 않는다.
+  UploadFormat? _format;
+
   @override
   bool get isRecording => _startedAt != null;
 
   @override
   Future<bool> hasPermission() => _recorder.hasPermission();
+
+  @override
+  Future<UploadFormat> resolveFormat() async {
+    final cached = _format;
+    if (cached != null) return cached;
+
+    // FLAC은 무손실이라 임베딩에 영향이 없으면서 업로드가 WAV의 62%다.
+    // 다만 플랫폼·OS 버전에 따라 인코더가 없을 수 있으므로 **런타임에 물어보고**
+    // 없으면 WAV로 내려간다. 지원하지 않는 포맷으로 녹음을 시도하면 녹음 자체가
+    // 실패하는데, 그건 업로드가 좀 큰 것보다 훨씬 나쁘다.
+    var resolved = UploadFormat.wav;
+    try {
+      if (await _recorder.isEncoderSupported(AudioEncoder.flac)) {
+        resolved = UploadFormat.flac;
+      }
+    } catch (_) {
+      // 조회 자체가 실패하면 안전한 쪽(WAV)을 쓴다
+    }
+    _format = resolved;
+    return resolved;
+  }
 
   @override
   Stream<RecordingProgress> start() {
@@ -97,15 +132,19 @@ class DeviceAudioRecorder implements AudioRecorderService {
   Future<void> _beginRecording(
       StreamController<RecordingProgress> controller) async {
     try {
+      final format = await resolveFormat();
       final dir = await getTemporaryDirectory();
       final path =
-          '${dir.path}/vg_${DateTime.now().millisecondsSinceEpoch}.wav';
+          '${dir.path}/vg_${DateTime.now().millisecondsSinceEpoch}.${format.extension}';
       _path = path;
 
-      // WAV/PCM 16bit로 직접 받는다. 서버가 그대로 디코딩할 수 있어 변환이 없다.
+      // 16kHz/Mono로 직접 받는다. 서버 규격과 같아 리샘플링 왜곡이 없고,
+      // 서버는 두 포맷 모두 그대로 디코딩한다.
       await _recorder.start(
-        const RecordConfig(
-          encoder: AudioEncoder.wav,
+        RecordConfig(
+          encoder: format == UploadFormat.flac
+              ? AudioEncoder.flac
+              : AudioEncoder.wav,
           sampleRate: RecordingSpec.sampleRate,
           numChannels: RecordingSpec.channels,
         ),
@@ -150,7 +189,11 @@ class DeviceAudioRecorder implements AudioRecorderService {
     final file = File(resolved);
     if (!file.existsSync()) return null;
 
-    return RecordingResult(file: file, duration: duration);
+    return RecordingResult(
+      file: file,
+      duration: duration,
+      format: _format ?? UploadFormat.wav,
+    );
   }
 
   @override
