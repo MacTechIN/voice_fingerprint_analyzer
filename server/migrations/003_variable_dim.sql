@@ -22,7 +22,14 @@ ALTER TABLE impostor_cohort DROP CONSTRAINT IF EXISTS impostor_cohort_dim_matche
 ALTER TABLE impostor_cohort ALTER COLUMN embedding TYPE vector;
 
 -- dim 컬럼은 그대로 둔다. 차원 제약이 사라진 만큼 메타데이터의 중요성이 커졌다.
+--
+-- PostgreSQL의 ADD CONSTRAINT에는 IF NOT EXISTS가 없다. 마이그레이션을 다시
+-- 돌려도 실패하지 않도록 먼저 지우고 추가한다 — 재적용이 안전해야 배포 스크립트를
+-- 조건 없이 반복 실행할 수 있다.
+ALTER TABLE speaker_enrollments DROP CONSTRAINT IF EXISTS speaker_enrollments_dim_positive;
 ALTER TABLE speaker_enrollments ADD CONSTRAINT speaker_enrollments_dim_positive
     CHECK (dim > 0);
+
+ALTER TABLE impostor_cohort DROP CONSTRAINT IF EXISTS impostor_cohort_dim_positive;
 ALTER TABLE impostor_cohort ADD CONSTRAINT impostor_cohort_dim_positive
     CHECK (dim > 0);

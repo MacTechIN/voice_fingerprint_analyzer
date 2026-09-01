@@ -21,9 +21,11 @@
 
 ```bash
 cd server && ./run.sh                                          # API: localhost:8000/docs
-cd app && flutter run --dart-define=VG_API_BASE_URL=http://localhost:8000
 cd web && npm run dev                                          # 관리자: localhost:3000
+cd app && flutter run --dart-define=VG_API_BASE_URL=http://localhost:8000
 ```
+
+최초 설치·DB 준비·배포 전 점검은 **[10_Operations.md](docs/10_Operations.md)** 참조.
 
 ## 문서 (docs/)
 
@@ -38,5 +40,6 @@ cd web && npm run dev                                          # 관리자: loca
 | [07_GitHub_Tech_Stack](docs/07_GitHub_Tech_Stack.md) | 오픈소스 스택 선정 및 단계 매핑 |
 | [08_OpenSource_Survey](docs/08_OpenSource_Survey.md) | **오픈소스 전수 조사 (GitHub API 실측)** — 채택 스택·라이선스 리스크 |
 | [09_BEF2.0_Integration](docs/09_BEF2.0_Integration.md) | BEF2.0 청크 처리 방식 도입 검토 체크리스트 (**미확정**) |
+| [10_Operations](docs/10_Operations.md) | **서비스 실행 가이드** — 설치·기동·배포 전 점검·문제 해결 |
 | 음성 분리 및 화자 대조 (md/pdf) | 기반 심층 기술 연구 보고서 (수식 원본 참조용) |
 | [chunked-preprocess-pattern](docs/chunked-preprocess-pattern.md) | 청크 선처리·재사용 패턴 (SEP v2/LEP v2) — **보관 자료, 향후 성능 개선용** |
