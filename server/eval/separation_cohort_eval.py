@@ -25,8 +25,12 @@ Phase 7 실측에서 2인 혼합을 분리해 검증하면 EER이 6.25%였고, �
 **분리 코호트가 도움이 되지 않을 수도 있다.** DeepFilterNet도 "당연히 좋아질
 것"이라 여겼다가 실측에서 악화됐다. 가정하지 않고 잰다.
 
-실행:
-    .venv/bin/python -m eval.separation_cohort_eval --max-speakers 20
+실행 (결론 가능한 규모 — 약 65분, CPU 24코어 기준):
+    .venv/bin/python -m eval.separation_cohort_eval \
+        --max-speakers 40 --per-speaker 6 --utts-per-speaker 8 \
+        --cohort-speakers 40 --cohort-per-speaker 8
+
+결과 (2026-09-03): 코호트 종류는 EER을 바꾸지 않는다 (차이 0.06%p < 해상도 0.42%p).
 """
 
 from __future__ import annotations
@@ -62,6 +66,11 @@ TOP_K = 200
 #: 코호트가 top_k의 몇 배는 되어야 적응적 선택이 의미를 갖는다.
 MIN_COHORT_RATIO = 1.5
 
+#: 이보다 작은 EER 차이는 운영상 의미가 없다고 본다. 해상도가 이 값 이하인데도
+#: 차이가 해상도 미만이면 "검정력 부족"이 아니라 "효과가 있어도 이 값 미만"이라는
+#: 결론(상한 확정)이다. 둘을 구분하지 않으면 영원히 표본만 늘리라고 하게 된다.
+PRACTICAL_EFFECT = 0.005
+
 
 def _normalize_rows(matrix: np.ndarray) -> np.ndarray:
     norms = np.linalg.norm(matrix, axis=1, keepdims=True)
@@ -84,7 +93,14 @@ def _asnorm(
     return 0.5 * ((raw - e_mean) / e_std + (raw - t_mean) / t_std)
 
 
-def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
+def main(
+    max_speakers: int,
+    per_speaker: int,
+    cohort_speakers: int,
+    *,
+    utts_per_speaker: int = 4,
+    cohort_per_speaker: int = 3,
+) -> None:
     settings = get_settings()
     rate = settings.target_sample_rate
     logger.info("백엔드=%s 모델=%s", settings.embedding_backend, settings.embedding_model)
@@ -127,7 +143,7 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
         ).vector
 
     # --- 평가 트라이얼 (dev-clean) ---
-    utts = load_utterances("dev-clean", max_per_speaker=4, seed=0)
+    utts = load_utterances("dev-clean", max_per_speaker=utts_per_speaker, seed=0)
     keep = sorted({u.speaker for u in utts})[:max_speakers]
     utts = [u for u in utts if u.speaker in keep]
     by_key = {u.key: u for u in utts}
@@ -135,7 +151,10 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
     logger.info("트라이얼 %d건 (화자 %d명)", len(trials), len(keep))
 
     # --- 코호트 (test-clean, 평가 화자와 분리) ---
-    cohort_utts = load_utterances("test-clean", max_per_speaker=3, seed=0)
+    #
+    # test-clean은 40화자뿐이라 화자당 발화 수를 늘려야 코호트가 top_k(200)의
+    # 1.5배(300)를 넘긴다. 화자당 3개면 최대 120개로 결론 가능 조건에 못 미친다.
+    cohort_utts = load_utterances("test-clean", max_per_speaker=cohort_per_speaker, seed=0)
     cohort_keep = sorted({u.speaker for u in cohort_utts})[:cohort_speakers]
     cohort_utts = [u for u in cohort_utts if u.speaker in cohort_keep]
     logger.info("코호트 후보 %d개 (화자 %d명)", len(cohort_utts), len(cohort_keep))
@@ -274,17 +293,27 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
                 "separation": m.separation,
             }
 
-    # 관측된 차이가 해상도보다 작으면 결론을 낼 수 없다
+    # 관측된 차이가 해상도보다 작으면 — 해상도가 거친 경우에만 — 결론을 낼 수 없다.
+    # 해상도가 이미 운영상 의미 있는 크기(PRACTICAL_EFFECT) 이하라면, 차이가 그
+    # 미만이라는 것 자체가 결론이다: 코호트 종류는 EER에 영향을 주지 않는다.
     resolution = 1 / min((y == 1).sum(), (y == 0).sum())
+    verdict: str | None = None
     sep_row = results.get("separated", {})
     if len(sep_row) >= 2:
         eers = [v["eer"] for v in sep_row.values()]
         spread = max(eers) - min(eers)
-        if spread < resolution:
+        if spread < resolution and resolution > PRACTICAL_EFFECT:
             warnings.append(
                 f"분리 조건의 EER 차이({spread*100:.2f}%p)가 해상도"
                 f"({resolution*100:.2f}%p)보다 작다. **어느 쪽이 낫다고 말할 수 없다.** "
                 f"--per-speaker를 늘려 genuine 트라이얼을 확보할 것."
+            )
+        elif spread < resolution:
+            verdict = (
+                f"코호트 종류 간 EER 차이({spread*100:.2f}%p)가 해상도"
+                f"({resolution*100:.2f}%p) 미만이고, 해상도는 운영상 의미 있는 크기"
+                f"({PRACTICAL_EFFECT*100:.1f}%p) 이하다. **효과가 있더라도 "
+                f"{resolution*100:.2f}%p 미만이다** — 코호트 종류는 EER을 바꾸지 않는다."
             )
 
     report = {
@@ -298,6 +327,7 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
         "top_k": TOP_K,
         "results": results,
         "warnings": warnings,
+        "verdict": verdict,
         "conclusive": not warnings,
     }
     path = DATA_DIR / "separation_cohort_eval.json"
@@ -331,6 +361,8 @@ def main(max_speakers: int, per_speaker: int, cohort_speakers: int) -> None:
         print("\n⚠ 이 측정은 결론을 낼 수 없다:")
         for w in warnings:
             print(f"  - {w}")
+    elif verdict:
+        print(f"\n결론: {verdict}")
     print(f"\n보고서: {path}")
 
 
@@ -339,5 +371,13 @@ if __name__ == "__main__":
     parser.add_argument("--max-speakers", type=int, default=20)
     parser.add_argument("--per-speaker", type=int, default=2)
     parser.add_argument("--cohort-speakers", type=int, default=30)
+    parser.add_argument("--utts-per-speaker", type=int, default=4,
+                        help="평가 화자당 발화 수 (dev-clean)")
+    parser.add_argument("--cohort-per-speaker", type=int, default=3,
+                        help="코호트 화자당 발화 수 (test-clean, 40화자 × N ≥ 300 필요)")
     args = parser.parse_args()
-    main(args.max_speakers, args.per_speaker, args.cohort_speakers)
+    main(
+        args.max_speakers, args.per_speaker, args.cohort_speakers,
+        utts_per_speaker=args.utts_per_speaker,
+        cohort_per_speaker=args.cohort_per_speaker,
+    )
