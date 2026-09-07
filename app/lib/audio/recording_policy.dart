@@ -38,6 +38,10 @@ class RecordingSpec {
   /// record 패키지의 진폭은 dBFS로 오며 0이 최대다.
   static const double tooQuietDbfs = -45;
   static const double clippingDbfs = -1.5;
+
+  /// 이 값 이하는 실제 신호가 아니라 "진폭 조회 미지원"의 센티널로 본다
+  /// (`record` 패키지는 미지원 플랫폼에서 -160을 돌려준다).
+  static const double unavailableDbfs = -150;
 }
 
 /// 업로드 오디오 포맷.
@@ -106,9 +110,18 @@ class PromptScripts {
 enum InputLevelStatus {
   tooQuiet,
   good,
-  clipping;
+  clipping,
+
+  /// 플랫폼이 진폭을 주지 않는다. 경고를 띄우지 않는다.
+  ///
+  /// `record_linux`는 `getAmplitude()`가 항상 -160dBFS를 돌려준다(진폭 조회
+  /// 미구현). 이를 그대로 판정하면 Linux에서는 녹음 내내 "소리가 너무 작습니다"가
+  /// 떠서, 정상 녹음을 사용자가 실패로 오해한다. 실제 마이크 신호가 -150dBFS
+  /// 아래로 내려가는 일은 없으므로 그 이하는 "측정값 없음"으로 본다.
+  unavailable;
 
   static InputLevelStatus fromDbfs(double dbfs) {
+    if (dbfs <= RecordingSpec.unavailableDbfs) return InputLevelStatus.unavailable;
     if (dbfs >= RecordingSpec.clippingDbfs) return InputLevelStatus.clipping;
     if (dbfs <= RecordingSpec.tooQuietDbfs) return InputLevelStatus.tooQuiet;
     return InputLevelStatus.good;
@@ -117,7 +130,7 @@ enum InputLevelStatus {
   String? get warning => switch (this) {
         InputLevelStatus.tooQuiet => '소리가 너무 작습니다. 마이크에 가까이 대고 말해주세요.',
         InputLevelStatus.clipping => '소리가 너무 큽니다. 마이크에서 조금 떨어져 주세요.',
-        InputLevelStatus.good => null,
+        InputLevelStatus.good || InputLevelStatus.unavailable => null,
       };
 }
 

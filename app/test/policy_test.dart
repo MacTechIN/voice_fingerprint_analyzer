@@ -69,6 +69,15 @@ void main() {
       expect(InputLevelStatus.fromDbfs(-0.5), InputLevelStatus.clipping);
     });
 
+    test('진폭 미지원 센티널(-160)은 "너무 작음"이 아니라 측정 불가다', () {
+      // record_linux는 getAmplitude()가 항상 -160을 돌려준다. 이를 tooQuiet로
+      // 읽으면 Linux에서 정상 녹음 내내 경고가 뜬다.
+      expect(InputLevelStatus.fromDbfs(-160), InputLevelStatus.unavailable);
+      expect(InputLevelStatus.fromDbfs(-150), InputLevelStatus.unavailable);
+      expect(InputLevelStatus.fromDbfs(-149), InputLevelStatus.tooQuiet);
+      expect(InputLevelStatus.unavailable.warning, isNull);
+    });
+
     test('정상 범위에서는 경고하지 않는다', () {
       expect(InputLevelStatus.good.warning, isNull);
       expect(InputLevelStatus.tooQuiet.warning, isNotNull);

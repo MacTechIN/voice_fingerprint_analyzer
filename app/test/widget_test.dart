@@ -53,6 +53,18 @@ void main() {
 
       expect(find.byKey(const Key('level-warning')), findsNothing);
     });
+
+    testWidgets('진폭 미지원 플랫폼(-160dBFS)에서는 경고를 띄우지 않는다', (tester) async {
+      await tester.pumpWidget(_wrap(const LevelMeter(
+        progress: RecordingProgress(
+          elapsed: Duration(seconds: 1),
+          dbfs: -160,
+          levelStatus: InputLevelStatus.unavailable,
+        ),
+      )));
+
+      expect(find.byKey(const Key('level-warning')), findsNothing);
+    });
   });
 
   group('RecordingTimer', () {

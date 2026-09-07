@@ -7,6 +7,7 @@ library;
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:path_provider/path_provider.dart';
 import 'package:record/record.dart';
 
@@ -115,6 +116,8 @@ class DeviceAudioRecorder implements AudioRecorderService {
       // 조회 자체가 실패하면 안전한 쪽(WAV)을 쓴다
     }
     _format = resolved;
+    // 실기기 검증 시 어느 포맷으로 협상됐는지 콘솔에서 확인한다.
+    debugPrint('[recorder] 업로드 포맷: ${resolved.name}');
     return resolved;
   }
 
@@ -189,6 +192,10 @@ class DeviceAudioRecorder implements AudioRecorderService {
     final file = File(resolved);
     if (!file.existsSync()) return null;
 
+    debugPrint(
+      '[recorder] 녹음 완료: ${duration.inMilliseconds}ms, '
+      '${file.lengthSync()}B, $resolved',
+    );
     return RecordingResult(
       file: file,
       duration: duration,

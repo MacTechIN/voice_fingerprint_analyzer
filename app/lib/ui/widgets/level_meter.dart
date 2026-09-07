@@ -24,6 +24,9 @@ class LevelMeter extends StatelessWidget {
       InputLevelStatus.clipping => Colors.red,
       InputLevelStatus.tooQuiet => Colors.orange,
       InputLevelStatus.good => Colors.green,
+      // 진폭을 못 받는 플랫폼(Linux 데스크톱)에서는 미터를 회색으로 비워 두어
+      // "측정 중이 아님"을 드러낸다. 초록으로 채우면 없는 측정을 있다고 보인다.
+      InputLevelStatus.unavailable => Colors.grey,
     };
 
     return Column(

@@ -110,7 +110,8 @@ FLAC은 **무손실**이라 임베딩이 비트 단위로 같으면서 WAV의 61
 | Android | `RECORD_AUDIO`, `INTERNET` (AndroidManifest.xml) |
 | iOS | `NSMicrophoneUsageDescription` (Info.plist) — 없으면 앱이 즉시 종료된다 |
 | macOS | `network.client`, `device.audio-input` 엔타이틀먼트 + 마이크 사용 설명 |
-| Linux/Windows | 별도 선언 불필요 |
+| Windows | 별도 선언 불필요 |
+| Linux | 권한 선언은 없으나 **`fmedia` 실행 파일이 PATH에 있어야 한다.** `record_linux`는 fmedia를 서브프로세스로 띄워 녹음하며, 없으면 `start()`가 실패해 "녹음을 시작할 수 없습니다"가 뜬다. 사용자 계정이 `audio` 그룹에 속해야 `/dev/snd`를 열 수 있다. 또한 Linux 백엔드는 `hasPermission()`이 항상 true, `getAmplitude()`가 항상 -160dBFS를 돌려주므로 레벨 미터는 회색(측정 불가)으로 표시된다 |
 
 ## 테스트
 
@@ -149,9 +150,51 @@ LibriSpeech 발화로 실측한 결과: 등록 → 동일 화자 통과 → 타 
 
 - **실기기 검증은 아직 없다.** 위젯·단위 테스트와 실제 서버 E2E는 통과했지만,
   마이크 캡처는 `FakeRecorder`로 대체했다. `record` 패키지의 실제 동작(권한 팝업,
-  기기별 샘플레이트 지원)은 실기기에서 확인해야 한다.
+  기기별 샘플레이트 지원)은 실기기에서 확인해야 한다. 절차는 아래
+  [실기기 검증 절차](#실기기-검증-절차) 참조. 개발 서버(헤드리스, `audio` 그룹
+  미소속, Linux 툴체인·Android SDK 없음)에서는 수행할 수 없어 실제 기기가 있는
+  환경에서 해야 한다 (2026-09-05 확인).
 - **사용자 ID가 하드코딩(`demo-user`)이다.** 실제 서비스에서는 로그인 세션에서 온다.
 - **FLAC 인코딩은 실기기에서 확인되지 않았다.** `record` 패키지 문서상 5개 타깃
   모두 지원하며 런타임 조회 후 폴백하지만, OS 버전별 실제 동작은 기기에서 봐야 한다.
 - **오프라인 큐가 없다.** 네트워크가 끊기면 즉시 실패한다. Thin Client 특성상
   서버 없이는 아무것도 못 하므로 의도된 동작이다.
+
+## 실기기 검증 절차
+
+`FakeRecorder`가 대신하던 부분 — **마이크 권한 → 실제 캡처 → 포맷 협상 → 서버 판정** —
+을 실제 기기에서 확인한다. 서버는 [10_Operations](../docs/10_Operations.md) 순서로
+먼저 띄운다. 기기와 서버가 같은 네트워크에 있어야 하며, 서버 주소는 `localhost`가
+아니라 **서버 머신의 LAN IP**로 준다 (Android 에뮬레이터만 `10.0.2.2`).
+
+```bash
+flutter devices                                   # 기기 인식 확인
+flutter run -d <device> --dart-define=VG_API_BASE_URL=http://<서버IP>:8000
+```
+
+콘솔에 `[recorder] 업로드 포맷: flac|wav`와 `[recorder] 녹음 완료: <ms>, <bytes>, <path>`가
+찍힌다. 서버 쪽 판정은 관리자 API로 본다:
+
+```bash
+curl -s -H "Authorization: Bearer $VG_ADMIN_TOKEN" \
+  "http://<서버IP>:8000/api/v1/admin/attempts?limit=5" | jq
+```
+
+| # | 확인 항목 | 조작 | 기대 결과 | 어긋나면 |
+| :-- | :--- | :--- | :--- | :--- |
+| 1 | 권한 팝업 | 첫 녹음 버튼 | OS 권한 팝업 → 허용 후 녹음 시작 | Android: `RECORD_AUDIO` 선언 확인. iOS: `NSMicrophoneUsageDescription` 없으면 앱이 즉시 종료된다 |
+| 2 | 권한 거부 | 팝업에서 거부 | "마이크 권한이 필요합니다" 안내, 앱은 살아 있다 | 크래시면 `hasPermission()` 경로 버그 |
+| 3 | 레벨 미터 | 말하기 / 침묵 / 마이크에 대고 크게 | 초록 / 주황 "너무 작습니다" / 빨강 "너무 큽니다" | Linux는 회색(측정 불가)이 정상. 모바일에서 항상 주황이면 `getAmplitude()` 단위(dBFS) 확인 |
+| 4 | 포맷 협상 | 콘솔 로그 | Android·iOS·macOS·Windows·Linux 모두 `flac` | `wav`면 그 OS 버전은 FLAC 인코더 미지원 — 정상 폴백이지만 기록해 둔다 |
+| 5 | 샘플레이트 | 녹음 완료 로그의 바이트 수 | 5초 WAV ≈ 160KB(16kHz·16bit·모노), FLAC ≈ 그 60% | WAV가 2배 이상 크면 기기가 16kHz를 무시하고 44.1/48kHz로 녹음한 것 → 서버는 리샘플링하지만 규격 위반이므로 기록 |
+| 6 | 길이 하한 | 2초만 말하고 놓기 | 서버로 보내지 않고 "3초 이상 필요" 안내 | 서버 422가 오면 클라이언트 길이 검사가 빠진 것 |
+| 7 | 등록 | 5초 이상 문장 읽기 | 성공 화면. `attempts`에는 기록되지 않음(등록은 검증이 아님) | 422 `speech_too_short`면 VAD가 발화를 못 찾은 것 — 잡음·거리 확인 |
+| 8 | 본인 검증 | 같은 사람이 3초 이상 | 통과. `attempts.speech_duration_sec`가 녹음 길이의 절반 이상, `raw_cosine` 0.6 이상 | `speech_duration_sec`가 매우 짧으면 마이크 게인이 낮아 VAD 탈락 |
+| 9 | 타인 검증 | 다른 사람이 3초 이상 | 거부. `raw_cosine`이 임계값 아래 | 통과하면 임계값이 기기 조건에 맞지 않는 것 — Phase 6 재캘리브레이션 대상 |
+| 10 | 임시 파일 | 검증 후 앱 캐시 디렉터리 | `vg_*.wav|flac`가 남아 있지 않다 | 남으면 `deleteTempAudio` 경로 확인 (생체정보 잔존, FR-02 위반) |
+| 11 | 최대 길이 | 30초 이상 누르고 있기 | 30초에 자동 전송 | 계속 녹음되면 `maxDuration` 자동 마감 실패 |
+| 12 | 네트워크 단절 | Wi-Fi 끄고 검증 | 즉시 네트워크 오류 안내, 앱은 살아 있다 | 무한 대기면 dio 타임아웃 확인 |
+
+한 기기에서 12개가 모두 기대대로 나오면 그 OS의 "실기기 검증" 항목을 완료로
+바꾸고, 4·5번에서 관찰한 포맷·바이트 수를 이 문서에 OS·버전과 함께 적는다.
+
