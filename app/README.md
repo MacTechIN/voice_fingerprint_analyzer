@@ -163,7 +163,7 @@ LibriSpeech 발화로 실측한 결과: 등록 → 동일 화자 통과 → 타 
 ## 실기기 검증 절차
 
 `FakeRecorder`가 대신하던 부분 — **마이크 권한 → 실제 캡처 → 포맷 협상 → 서버 판정** —
-을 실제 기기에서 확인한다. 서버는 [10_Operations](../docs/10_Operations.md) 순서로
+을 실제 기기에서 확인한다. 서버는 [09_Operations](../docs/09_Operations.md) 순서로
 먼저 띄운다. 기기와 서버가 같은 네트워크에 있어야 하며, 서버 주소는 `localhost`가
 아니라 **서버 머신의 LAN IP**로 준다 (Android 에뮬레이터만 `10.0.2.2`).
 
