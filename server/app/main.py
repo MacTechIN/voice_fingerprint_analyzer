@@ -106,9 +106,20 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="VoiceGuard Verification API",
     description=(
-        "서버 집중형 화자 인증(성문 분석) API. "
-        "Phase 6(캘리브레이션) 범위: VAD 전처리 + ECAPA-TDNN 임베딩, 성문 등록·1:1 검증, "
-        "AS-Norm 점수 정규화 및 EER 기반 임계값."
+        "서버 집중형 화자 인증(성문 분석) API. 클라이언트는 녹음과 전송만 담당하고 "
+        "모든 분석은 이 서버에서 수행한다.\n\n"
+        "**검증 파이프라인** — 딥페이크 탐지(선택) → 다중 화자 분리·타겟 선택(선택) → "
+        "VAD 전처리 → 화자 임베딩 추출 → 코사인 유사도 + AS-Norm 정규화 판정.\n\n"
+        "임베딩 백본은 WeSpeaker ResNet34-LM(ONNX, 256차원)이 기본이며 "
+        "`VG_EMBEDDING_BACKEND`로 SpeechBrain ECAPA-TDNN(192차원)으로 바꿀 수 있다. "
+        "차원이 달라 백본을 바꾸면 기존 등록 성문을 재등록해야 한다.\n\n"
+        "**기본 비활성 기능** — 딥페이크 탐지(`VG_ANTISPOOF_ENABLED`)와 "
+        "음성 분리(`VG_SEPARATION_ENABLED`)는 추론 비용이 커 필요한 배포에서만 켠다. "
+        "단일 화자 오디오에 분리를 걸면 아티팩트만 더해 정확도가 떨어진다.\n\n"
+        "**임계값 주의** — 기본 임계값은 LibriSpeech(조용한 영어 낭독) 실측값이다. "
+        "마이크·코덱·환경이 다르면 배포 환경 오디오로 재캘리브레이션해야 한다.\n\n"
+        "관리자 API(`/admin/*`)는 지표·오딧 트레일·임계값 영향 분석을 제공하며 "
+        "별도 토큰(`VG_ADMIN_TOKEN`)이 필요하다."
     ),
     version="0.9.0",
     lifespan=lifespan,
