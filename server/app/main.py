@@ -110,7 +110,7 @@ app = FastAPI(
         "Phase 6(캘리브레이션) 범위: VAD 전처리 + ECAPA-TDNN 임베딩, 성문 등록·1:1 검증, "
         "AS-Norm 점수 정규화 및 EER 기반 임계값."
     ),
-    version="0.3.0",
+    version="0.9.0",
     lifespan=lifespan,
 )
 
