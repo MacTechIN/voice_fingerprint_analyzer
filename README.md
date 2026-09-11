@@ -1,5 +1,11 @@
 # VoiceGuard-Verification (voice_fingerprint_analyzer)
 
+[![version](https://img.shields.io/github/v/tag/MacTechIN/voice_fingerprint_analyzer?sort=semver&label=version&color=blue)](CHANGELOG.md)
+[![status](https://img.shields.io/badge/status-pre--release-orange)](CHANGELOG.md#%EB%B2%84%EC%A0%84-%EC%A0%95%EC%B1%85)
+[![python](https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white)](docs/09_Operations.md)
+[![flutter](https://img.shields.io/badge/flutter-3.27+-02569B?logo=flutter&logoColor=white)](app/)
+[![node](https://img.shields.io/badge/node-20+-339933?logo=nodedotjs&logoColor=white)](web/)
+
 단일 채널 오디오에서 화자의 성문(Voiceprint)을 추출·대조하는 **서버 분석형 화자 인증(Speaker Verification) 시스템** 프로토타입.
 
 - **Thin Client:** Flutter 크로스플랫폼 앱(Windows/Android/Linux/iOS/MacOS)은 녹음과 API 통신만 담당
