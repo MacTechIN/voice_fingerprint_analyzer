@@ -26,6 +26,7 @@ cd app && flutter run --dart-define=VG_API_BASE_URL=http://localhost:8000
 ```
 
 최초 설치·DB 준비·배포 전 점검은 **[09_Operations.md](docs/09_Operations.md)** 참조.
+버전별 변경 내역과 검증되지 않은 항목은 **[CHANGELOG.md](CHANGELOG.md)** 참조.
 
 ## 문서 (docs/)
 
