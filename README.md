@@ -5,6 +5,7 @@
 [![python](https://img.shields.io/badge/python-3.10+-3776AB?logo=python&logoColor=white)](docs/09_Operations.md)
 [![flutter](https://img.shields.io/badge/flutter-3.27+-02569B?logo=flutter&logoColor=white)](app/)
 [![node](https://img.shields.io/badge/node-20+-339933?logo=nodedotjs&logoColor=white)](web/)
+[![license](https://img.shields.io/badge/license-Apache--2.0-D22128)](LICENSE)
 
 단일 채널 오디오에서 화자의 성문(Voiceprint)을 추출·대조하는 **서버 분석형 화자 인증(Speaker Verification) 시스템** 프로토타입.
 
@@ -49,3 +50,20 @@ cd app && flutter run --dart-define=VG_API_BASE_URL=http://localhost:8000
 | [09_Operations](docs/09_Operations.md) | **서비스 실행 가이드** — 설치·기동·배포 전 점검·문제 해결 |
 | 음성 분리 및 화자 대조 (md/pdf) | 기반 심층 기술 연구 보고서 (수식 원본 참조용) |
 | [chunked-preprocess-pattern](docs/chunked-preprocess-pattern.md) | 청크 선처리·재사용 패턴 (SEP v2/LEP v2) — **보관 자료, 향후 성능 개선용** |
+
+## 라이선스
+
+이 저장소의 코드와 문서는 **[Apache License 2.0](LICENSE)** 을 따른다.
+특허 라이선스 조항이 포함된 허용적 라이선스이며, 채택한 핵심 스택(WeSpeaker,
+3D-Speaker, SpeechBrain)과 조건이 일치한다.
+
+**사전학습 모델 가중치는 이 라이선스의 적용 대상이 아니다.** 실행 시 내려받는
+모델(WeSpeaker ResNet34-LM, silero-vad, AASIST-L 등)은 각자의 라이선스를 따르므로
+배포 전 개별 확인이 필요하다. 조사 결과는
+[08_OpenSource_Survey](docs/08_OpenSource_Survey.md)에 정리돼 있으며, 특히 다음
+두 가지는 주의해야 한다.
+
+- **AASIST3는 CC BY-NC-ND 4.0으로 상용 배치가 불가하다.** 채택한 것은 MIT인
+  AASIST-L이며, 성능이 더 좋다는 이유로 AASIST3로 바꾸면 라이선스가 깨진다.
+- **라이선스가 표기되지 않은 저장소가 있다.** `wesep`과 `record`가 그렇다.
+  `record`는 pub.dev 표기(BSD-3)를 확인하고 채택했다.
