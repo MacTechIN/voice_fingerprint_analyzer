@@ -57,9 +57,14 @@ cd app && flutter run --dart-define=VG_API_BASE_URL=http://localhost:8000
 특허 라이선스 조항이 포함된 허용적 라이선스이며, 채택한 핵심 스택(WeSpeaker,
 3D-Speaker, SpeechBrain)과 조건이 일치한다.
 
-**사전학습 모델 가중치는 이 라이선스의 적용 대상이 아니다.** 실행 시 내려받는
-모델(WeSpeaker ResNet34-LM, silero-vad, AASIST-L 등)은 각자의 라이선스를 따르므로
-배포 전 개별 확인이 필요하다. 조사 결과는
+**서드파티 코드가 하나 포함돼 있다.** `server/vendor/`의 AASIST 모델 소스는
+[clovaai/aasist](https://github.com/clovaai/aasist)에서 수정 없이 그대로 가져온
+MIT 라이선스 코드다. MIT가 요구하는 저작권·허가 문구는 [NOTICE](NOTICE)에 있으며,
+이 저장소를 재배포할 때 함께 포함해야 한다.
+
+**사전학습 모델 가중치는 이 라이선스의 적용 대상이 아니다.** 가중치는 저장소에
+포함하지 않고 실행 시 내려받는다. 각 모델(WeSpeaker ResNet34-LM, silero-vad,
+AASIST-L 등)은 자체 라이선스를 따르므로 배포 전 개별 확인이 필요하다. 조사 결과는
 [08_OpenSource_Survey](docs/08_OpenSource_Survey.md)에 정리돼 있으며, 특히 다음
 두 가지는 주의해야 한다.
 
