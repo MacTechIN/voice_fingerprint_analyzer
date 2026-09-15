@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../app_info.dart';
 import '../../audio/recording_policy.dart';
 import '../../state/voice_controller.dart';
 import '../widgets/level_meter.dart';
@@ -31,6 +32,19 @@ class _VoiceScreenState extends ConsumerState<VoiceScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('VoiceGuard'),
+        actions: [
+          IconButton(
+            key: const Key('license-button'),
+            icon: const Icon(Icons.info_outline),
+            tooltip: '오픈소스 라이선스',
+            onPressed: () => showLicensePage(
+              context: context,
+              applicationName: appName,
+              applicationVersion: appVersion,
+              applicationLegalese: '© 2026 MacTechIN · Apache License 2.0',
+            ),
+          ),
+        ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(28),
           child: _ServerBanner(),

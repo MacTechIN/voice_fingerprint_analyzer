@@ -128,6 +128,7 @@ flutter test                       # 63 passed
 | `client_test.dart` | HTTP 계층 모킹 — 422 반려·네트워크 오류 변환 |
 | `controller_test.dart` | 상태 전이, **임시 파일 삭제**(성공·실패 양쪽) |
 | `widget_test.dart` | 레벨 경고, 결과 시각화, 폴백 경고, 실패 안내 |
+| `license_test.dart` | 자산 라이선스 원문이 저장소 원본과 일치하는지, 라이선스 화면 동작 |
 
 ### 실제 서버 E2E
 
@@ -198,3 +199,24 @@ curl -s -H "Authorization: Bearer $VG_ADMIN_TOKEN" \
 한 기기에서 12개가 모두 기대대로 나오면 그 OS의 "실기기 검증" 항목을 완료로
 바꾸고, 4·5번에서 관찰한 포맷·바이트 수를 이 문서에 OS·버전과 함께 적는다.
 
+## 라이선스 표시
+
+앱바의 정보 아이콘을 누르면 Flutter 표준 라이선스 화면이 열린다. 여기에는 세 가지가
+함께 나온다.
+
+1. 의존 패키지 라이선스 — Flutter가 자동으로 모은다
+2. 이 프로젝트의 Apache-2.0 원문
+3. 서드파티 고지(NOTICE) — 서버가 포함한 AASIST의 MIT 문구
+
+2번과 3번은 `main.dart`의 `registerProjectLicenses()`가 `LicenseRegistry`에 등록한다.
+
+`assets/LICENSE`와 `assets/NOTICE`는 **저장소 루트 파일의 복사본**이다. Flutter는
+패키지 바깥 경로를 자산으로 묶지 못해 복사가 불가피하다. 원본을 고치면 복사본도
+갱신해야 한다.
+
+```bash
+cp ../LICENSE ../NOTICE assets/
+```
+
+잊어도 `license_test.dart`가 잡는다. 낡은 고지가 그대로 배포되면 단순 문서 불일치가
+아니라 재배포 조건 위반이 될 수 있어 테스트로 묶어 두었다.

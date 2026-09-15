@@ -33,3 +33,9 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # 라이선스 화면에 싣는 원문. 저장소 루트 파일의 복사본이며,
+  # test/license_test.dart가 원본과 동일한지 검사한다.
+  assets:
+    - assets/LICENSE
+    - assets/NOTICE
