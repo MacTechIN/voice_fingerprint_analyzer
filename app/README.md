@@ -128,7 +128,7 @@ flutter test                       # 63 passed
 | `client_test.dart` | HTTP 계층 모킹 — 422 반려·네트워크 오류 변환 |
 | `controller_test.dart` | 상태 전이, **임시 파일 삭제**(성공·실패 양쪽) |
 | `widget_test.dart` | 레벨 경고, 결과 시각화, 폴백 경고, 실패 안내 |
-| `license_test.dart` | 자산 라이선스 원문이 저장소 원본과 일치하는지, 라이선스 화면 동작 |
+| `license_test.dart` | 자산 LICENSE가 저장소 원본과 일치하는지, 라이선스 화면 동작, 버전 일치 |
 
 ### 실제 서버 E2E
 
@@ -201,22 +201,21 @@ curl -s -H "Authorization: Bearer $VG_ADMIN_TOKEN" \
 
 ## 라이선스 표시
 
-앱바의 정보 아이콘을 누르면 Flutter 표준 라이선스 화면이 열린다. 여기에는 세 가지가
-함께 나온다.
+앱바의 정보 아이콘을 누르면 Flutter 표준 라이선스 화면이 열린다. 두 가지가 나온다.
 
 1. 의존 패키지 라이선스 — Flutter가 자동으로 모은다
-2. 이 프로젝트의 Apache-2.0 원문
-3. 서드파티 고지(NOTICE) — 서버가 포함한 AASIST의 MIT 문구
+2. 이 프로젝트의 Apache-2.0 원문 — `main.dart`의 `registerProjectLicenses()`가 등록한다
 
-2번과 3번은 `main.dart`의 `registerProjectLicenses()`가 `LicenseRegistry`에 등록한다.
+**저장소 루트의 NOTICE는 앱에 싣지 않는다.** NOTICE가 담은 고지는 서버가 포함한
+AASIST(MIT)에 대한 것이고, 그 코드는 앱 바이너리에 들어가지 않는다. 앱이 재배포하지
+않는 구성요소의 고지를 앱에 실으면 사용자가 앱에 포함된 것으로 오해한다. NOTICE
+내용의 검증은 벤더링 코드가 있는 `server/tests/test_notice.py`가 맡는다.
 
-`assets/LICENSE`와 `assets/NOTICE`는 **저장소 루트 파일의 복사본**이다. Flutter는
-패키지 바깥 경로를 자산으로 묶지 못해 복사가 불가피하다. 원본을 고치면 복사본도
-갱신해야 한다.
+`assets/LICENSE`는 **저장소 루트 LICENSE의 복사본**이다. Flutter는 패키지 바깥
+경로를 자산으로 묶지 못해 복사가 불가피하다. 원본을 고치면 복사본도 갱신해야 한다.
 
 ```bash
-cp ../LICENSE ../NOTICE assets/
+cp ../LICENSE assets/
 ```
 
-잊어도 `license_test.dart`가 잡는다. 낡은 고지가 그대로 배포되면 단순 문서 불일치가
-아니라 재배포 조건 위반이 될 수 있어 테스트로 묶어 두었다.
+잊어도 `license_test.dart`가 잡는다.

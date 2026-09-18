@@ -17,20 +17,20 @@ void main() {
   runApp(const ProviderScope(child: VoiceGuardApp()));
 }
 
-/// 프로젝트 라이선스와 서드파티 고지를 Flutter 라이선스 화면에 등록한다.
+/// 이 저장소의 라이선스를 Flutter 라이선스 화면에 등록한다.
 ///
-/// Flutter는 의존 패키지의 LICENSE를 자동으로 모아 보여주지만, 이 저장소 자체의
-/// 라이선스와 NOTICE는 모르므로 직접 넣어준다. NOTICE는 재배포 시 함께 전달해야
-/// 하는 고지라 앱에서도 확인할 수 있어야 한다.
+/// Flutter는 의존 패키지의 LICENSE를 자동으로 모아 보여주지만 이 저장소 자체의
+/// 라이선스는 모르므로 직접 넣어준다.
+///
+/// **NOTICE는 싣지 않는다.** NOTICE가 담은 고지는 서버가 포함한 AASIST(MIT)에
+/// 대한 것인데, 그 코드는 앱 바이너리에 들어가지 않는다. 앱이 재배포하지 않는
+/// 구성요소의 고지를 앱에 실으면 사용자가 앱에 포함된 것으로 오해한다.
+/// 저장소 재배포 시의 고지 의무는 루트 NOTICE 파일이 그대로 진다.
 void registerProjectLicenses() {
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks(
       const ['VoiceGuard'],
       await rootBundle.loadString('assets/LICENSE'),
-    );
-    yield LicenseEntryWithLineBreaks(
-      const ['VoiceGuard 서드파티 고지 (NOTICE)'],
-      await rootBundle.loadString('assets/NOTICE'),
     );
   });
 }

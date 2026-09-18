@@ -1,9 +1,11 @@
 /// 라이선스 표시 검증.
 ///
-/// `assets/`의 LICENSE·NOTICE는 저장소 루트 파일의 **복사본**이다. Flutter는
-/// 패키지 바깥 경로를 자산으로 묶지 못해 복사가 불가피한데, 복사본은 원본이
-/// 바뀌어도 조용히 남는다. 라이선스 고지가 낡은 채로 배포되는 것은 단순한
-/// 문서 불일치가 아니라 재배포 조건 위반이 될 수 있어, 여기서 어긋남을 잡는다.
+/// `assets/LICENSE`는 저장소 루트 파일의 **복사본**이다. Flutter는 패키지 바깥
+/// 경로를 자산으로 묶지 못해 복사가 불가피한데, 복사본은 원본이 바뀌어도 조용히
+/// 남는다. 낡은 라이선스가 배포되지 않도록 여기서 어긋남을 잡는다.
+///
+/// NOTICE는 앱에 싣지 않는다. 그 고지가 가리키는 AASIST 코드는 서버에만 있다.
+/// NOTICE 내용 자체의 검증은 `server/tests/test_notice.py`가 맡는다.
 library;
 
 import 'dart:io';
@@ -19,7 +21,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('자산 복사본이 저장소 원본과 같다', () {
-    for (final name in ['LICENSE', 'NOTICE']) {
+    for (final name in ['LICENSE']) {
       test(name, () {
         final bundled = File('assets/$name');
         final source = File('../$name');
@@ -35,16 +37,6 @@ void main() {
     }
   });
 
-  test('NOTICE에 벤더링된 AASIST의 MIT 문구가 들어 있다', () {
-    final notice = File('assets/NOTICE').readAsStringSync();
-
-    // 헤더의 "MIT license" 한 줄만으로는 MIT 조건을 만족하지 못한다.
-    // 저작권 표시와 허가 문구가 함께 있어야 한다.
-    expect(notice, contains('Copyright (c) 2021-present NAVER Corp.'));
-    expect(notice, contains('Permission is hereby granted'));
-    expect(notice, contains('THE SOFTWARE IS PROVIDED "AS IS"'));
-  });
-
   test('app_info의 버전이 pubspec과 같다', () {
     final pubspec = File('pubspec.yaml').readAsLinesSync();
     final line = pubspec.firstWhere((l) => l.startsWith('version:'));
@@ -54,7 +46,7 @@ void main() {
     expect(appName, isNotEmpty);
   });
 
-  test('registerProjectLicenses가 두 원문을 등록한다', () async {
+  test('registerProjectLicenses가 프로젝트 라이선스만 등록한다', () async {
     LicenseRegistry.reset();
     registerProjectLicenses();
 
@@ -63,24 +55,24 @@ void main() {
         .where((e) => e.packages.any((p) => p.startsWith('VoiceGuard')))
         .toList();
 
-    expect(ours.length, 2);
+    expect(ours.length, 1);
 
     final texts = ours
         .map((e) => e.paragraphs.map((p) => p.text).join(' '))
         .join('\n');
     expect(texts, contains('Apache License'));
-    expect(texts, contains('NAVER Corp'));
+
+    // 서버에만 있는 구성요소의 고지가 앱에 섞여 들어가지 않아야 한다.
+    expect(texts, isNot(contains('NAVER Corp')));
 
     LicenseRegistry.reset();
   });
 
   test('등록한 원문이 자산에서 실제로 읽힌다', () async {
     final license = await rootBundle.loadString('assets/LICENSE');
-    final notice = await rootBundle.loadString('assets/NOTICE');
 
     expect(license, contains('Apache License'));
     expect(license, contains('Copyright 2026 MacTechIN'));
-    expect(notice, contains('THIRD-PARTY SOFTWARE'));
   });
 
   testWidgets('앱바 버튼으로 라이선스 화면을 연다', (tester) async {
