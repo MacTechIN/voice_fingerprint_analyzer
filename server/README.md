@@ -214,6 +214,7 @@ VG_DATABASE_URL="postgresql://..." .venv/bin/python -m eval.seed_cohort --replac
 | `VG_ENHANCE_ENABLED` | `false` | DeepFilterNet 소음 억제 (**측정상 EER 악화 — 기본 비활성**) |
 | `VG_SEPARATION_ENABLED` | `false` | 다중 화자 분리 (검증 경로 전용, 기본 비활성) |
 | `VG_SEPARATION_MODEL` | `speechbrain/sepformer-whamr16k` | 분리 모델 (16kHz) |
+| `VG_SEPARATION_GATE_SCORE` | 없음 | 이 점수 이상이면 분리를 건너뛴다. 없으면 항상 분리 |
 | `VG_TORCH_NUM_THREADS` | `0` | PyTorch 스레드 수. 0이면 기본값 |
 | `VG_MAX_CONCURRENT_INFERENCE` | `4` | 동시 추론 상한. 초과분은 대기 (0이면 무제한) |
 | `VG_ANTISPOOF_ENABLED` | `false` | 딥페이크 탐지 (**보안 배포에서는 반드시 켤 것**) |
@@ -311,6 +312,35 @@ PostgreSQL 저장소에서만 동작한다(집계에 SQL 윈도우 함수·perce
 
 > **기본 비활성인 이유:** 단일 화자 오디오에 분리를 걸면 아티팩트만 더하고
 > 추론 비용(RTF 1.2)이 크다. 다중 화자가 실제로 섞여 들어오는 배포에서만 켠다.
+
+### 분리 게이트 — 필요한 요청에만 건다
+
+분리를 켜면 단일 화자 요청까지 전부 비용과 아티팩트를 떠안는다. `VG_SEPARATION_GATE_SCORE`를
+주면 요청마다 판단한다. **원본을 그대로 임베딩해 등록 성문과 대조하고, 점수가 이 값
+이상이면 분리를 건너뛴다.** 되찾을 것이 없는데 분리할 이유가 없기 때문이다.
+
+건너뛰는 경로에는 추가 비용이 없다. 게이트 판정에 쓴 임베딩을 그대로 최종 판정에 쓴다.
+등록 성문이 여럿이면 최댓값으로 판단한다 — 최종 판정이 최대 유사도 기준이므로 게이트도
+같아야 한다.
+
+실측 (`python -m eval.separation_gate_eval`, 40화자 120트라이얼, EER 해상도 0.35%p):
+
+| 입력 | 분리 안 함 | 항상 분리 | 게이트 0.45 |
+| :--- | ---: | ---: | ---: |
+| 깨끗한 단일 화자 | 0.70% | 1.40% | **1.09%** |
+| 2인 혼합 | 11.92% | 2.46% | **2.73%** |
+
+게이트 0.45에서 **단일 화자 요청의 97%가 분리를 건너뛰고**, 그 조건의 EER도
+1.40% → 1.09%로 나아진다. 혼합 EER은 0.27%p 올랐는데 해상도 미만이라 **나빠졌는지
+이 측정으로는 구분할 수 없다.**
+
+```bash
+VG_SEPARATION_ENABLED=true VG_SEPARATION_GATE_SCORE=0.45 ./run.sh
+```
+
+> **0.45는 LibriSpeech 기준값이다.** 배포 오디오로 다시 재야 한다. 재측정 근거는
+> 남는다 — 요청마다 분리 적용 여부와 게이트 점수가 `verification_attempts`에 기록되고
+> 관리자 오딧 트레일에 표시된다. `/health`의 `separation_gate`로 현재 임계값을 확인한다.
 
 ## 딥페이크 탐지 (Phase 8)
 

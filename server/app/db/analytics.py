@@ -190,6 +190,8 @@ class AttemptRow:
     error_code: Optional[str]
     client_ip: Optional[str]
     elapsed_ms: Optional[float]
+    separation_applied: Optional[bool]
+    separation_gate_score: Optional[float]
     created_at: datetime
 
 
@@ -522,7 +524,8 @@ class Analytics:
             f"""
             SELECT id, user_id, outcome, is_verified, raw_cosine, normalized_score,
                    spoof_score, match_probability, threshold, model,
-                   speech_duration_sec, error_code, client_ip, elapsed_ms, created_at
+                   speech_duration_sec, error_code, client_ip, elapsed_ms,
+                   separation_applied, separation_gate_score, created_at
             FROM verification_attempts {where}
             ORDER BY id DESC LIMIT ${len(args) + 1} OFFSET ${len(args) + 2}
             """,
@@ -545,6 +548,8 @@ class Analytics:
                     error_code=r["error_code"],
                     client_ip=r["client_ip"],
                     elapsed_ms=_f(r["elapsed_ms"]),
+                    separation_applied=r["separation_applied"],
+                    separation_gate_score=_f(r["separation_gate_score"]),
                     created_at=r["created_at"],
                 )
                 for r in rows

@@ -106,6 +106,8 @@ export interface Attempt {
   client_ip: string | null;
   spoof_score: number | null;
   elapsed_ms: number | null;
+  separation_applied: boolean | null;
+  separation_gate_score: number | null;
   created_at: string;
 }
 

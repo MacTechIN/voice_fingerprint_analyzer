@@ -267,6 +267,8 @@ async def attempts(
                 "error_code": r.error_code,
                 "client_ip": r.client_ip,
                 "elapsed_ms": r.elapsed_ms,
+                "separation_applied": r.separation_applied,
+                "separation_gate_score": r.separation_gate_score,
                 "created_at": _iso(r.created_at),
             }
             for r in page.rows

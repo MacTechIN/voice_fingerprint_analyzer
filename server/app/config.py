@@ -5,7 +5,9 @@
 """
 
 from functools import lru_cache
+from typing import Optional
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -110,6 +112,42 @@ class Settings(BaseSettings):
 
     separation_model: str = "speechbrain/sepformer-whamr16k"
     """분리 모델. 16kHz라 리샘플링 왕복이 없고 잡음·잔향 조건으로 학습됐다."""
+
+    separation_gate_score: Optional[float] = None
+    """분리를 건너뛸 직접 대조 점수 기준. None이면 항상 분리한다.
+
+    **분리는 공짜가 아니다.** 6초 오디오에 약 7초가 걸리고, 단일 화자 오디오에
+    걸면 아티팩트가 임베딩을 훼손한다(실측 EER 0.83% → 2.50%). 그런데
+    `separation_enabled`는 켜고 끄는 것뿐이라, 다중 화자가 "섞여 들어올 수도
+    있는" 배포에서는 단일 화자 요청까지 모두 비용과 손해를 떠안아야 했다.
+
+    게이트는 그 선택을 요청 단위로 내린다. 원본을 그대로 임베딩해 등록 성문과
+    대조했을 때 점수가 이 값 이상이면 **분리할 것이 없다고 보고 건너뛴다.**
+    분리의 목적은 혼합에서 타겟을 되찾는 것인데, 원본이 이미 등록 화자와 충분히
+    닮았다면 되찾을 것이 없기 때문이다.
+
+    건너뛰는 경우 추가 비용이 없다 — 게이트 판정에 쓴 임베딩을 그대로 최종
+    판정에 쓴다. 분리가 필요한 경우에만 임베딩 한 번이 더 든다.
+
+    캘리브레이션: `python -m eval.separation_gate_eval`로 임계값별 EER과 분리
+    호출률을 재고, 혼합 EER이 나빠지지 않는 가장 낮은 값을 고른다.
+    """
+
+    @field_validator("separation_gate_score", mode="before")
+    @classmethod
+    def _blank_means_no_gate(cls, value):
+        """빈 문자열을 "게이트 없음"으로 읽는다.
+
+        `VG_SEPARATION_GATE_SCORE=`처럼 값을 비워 두는 것은 배포 템플릿과 .env에서
+        흔한 "이 기능 끄기" 표기다. 그대로 두면 **서버가 부팅에 실패한다** —
+        선택 설정 하나를 비웠다고 기동이 막히는 것은 과하고, 오류 메시지도
+        float 파싱 실패라 원인을 찾기 어렵다.
+
+        빈 값만 받아준다. 다른 잘못된 값은 조용히 무시하지 않고 그대로 실패시킨다.
+        """
+        if isinstance(value, str) and value.strip() == "":
+            return None
+        return value
 
     separation_min_margin: float = 0.0
     """타겟 선택 1등과 2등의 최소 유사도 차이.

@@ -53,11 +53,20 @@ class SpoofInfo(BaseModel):
 class SeparationInfo(BaseModel):
     """다중 화자 분리 결과 (Phase 7).
 
-    분리를 적용했을 때만 채워진다. 선택 마진이 작으면 어느 출력이 타겟인지
-    모호했다는 뜻이므로, 판정 신뢰도를 낮게 봐야 한다.
+    선택 마진이 작으면 어느 출력이 타겟인지 모호했다는 뜻이므로, 판정 신뢰도를
+    낮게 봐야 한다.
+
+    게이트를 쓰면 분리를 건너뛴 요청에서도 `applied=False`와 함께 채워진다.
+    어떤 요청이 왜 분리를 건너뛰었는지 감사 로그에서 확인할 수 있어야 한다.
     """
 
     applied: bool = Field(..., description="분리를 적용했는지")
+    gate_score: Optional[float] = Field(
+        None, description="게이트가 잰 원본 직접 대조 점수. 게이트를 쓸 때만 채워진다"
+    )
+    gate_threshold: Optional[float] = Field(
+        None, description="이 값 이상이면 분리를 건너뛴다"
+    )
     source_count: int = Field(0, description="분리된 화자 수")
     target_index: int = Field(0, description="타겟으로 선택된 출력 번호")
     target_similarity: float = Field(0.0, description="등록 성문과의 유사도")
@@ -163,6 +172,10 @@ class HealthResponse(BaseModel):
         False, description="AS-Norm 정규화가 실제로 적용되고 있는지 (코호트 적재 여부)"
     )
     separation_active: bool = Field(False, description="다중 화자 분리 적용 여부")
+    separation_gate: Optional[float] = Field(
+        None,
+        description="분리 게이트 임계값. None이면 게이트 없이 항상 분리한다",
+    )
     antispoof_active: bool = Field(False, description="딥페이크 탐지 적용 여부")
     cohort_size: int = Field(0, description="적재된 임포스터 코호트 크기")
     enhance_active: bool = Field(False, description="DeepFilterNet 소음 억제 적용 여부")

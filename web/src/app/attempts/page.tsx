@@ -54,6 +54,7 @@ export default async function AttemptsPage({
               <th className="px-2 py-2 text-right font-medium">원시 코사인</th>
               <th className="px-2 py-2 text-right font-medium">AS-Norm</th>
               <th className="px-2 py-2 text-right font-medium">스푸핑</th>
+              <th className="px-2 py-2 text-right font-medium">분리</th>
               <th className="px-2 py-2 text-right font-medium">임계값</th>
               <th className="px-2 py-2 text-right font-medium">일치도</th>
               <th className="px-2 py-2 text-right font-medium">발화</th>
@@ -99,6 +100,31 @@ export default async function AttemptsPage({
                     </span>
                   )}
                 </td>
+                {/* 게이트가 분리를 건너뛰었는지. 임계값 튜닝은 "건너뛴 요청의
+                    점수 분포"를 봐야 하므로 점수를 함께 보인다. */}
+                <td className="px-2 py-2 text-right tabular-nums">
+                  {a.separation_applied == null ? (
+                    <span className="text-slate-400">—</span>
+                  ) : (
+                    <span
+                      className={
+                        a.separation_applied ? "text-slate-700" : "text-slate-400"
+                      }
+                      title={
+                        a.separation_gate_score == null
+                          ? "게이트 없이 항상 분리"
+                          : `게이트 점수 ${a.separation_gate_score.toFixed(4)}`
+                      }
+                    >
+                      {a.separation_applied ? "적용" : "건너뜀"}
+                      {a.separation_gate_score != null && (
+                        <span className="ml-1 text-xs text-slate-400">
+                          {a.separation_gate_score.toFixed(2)}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </td>
                 <td className="px-2 py-2 text-right tabular-nums text-slate-400">
                   {formatScore(a.threshold, 4)}
                 </td>
@@ -120,7 +146,7 @@ export default async function AttemptsPage({
             ))}
             {data.attempts.length === 0 && (
               <tr>
-                <td colSpan={11} className="px-2 py-6 text-center text-slate-500">
+                <td colSpan={12} className="px-2 py-6 text-center text-slate-500">
                   검증 시도 기록이 없습니다.
                 </td>
               </tr>

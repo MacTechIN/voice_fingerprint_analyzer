@@ -83,15 +83,20 @@ def _analyze(
     raw: bytes,
     settings: Settings,
     *,
-    reference_embedding: list[float] | None = None,
+    reference_embeddings: list[list[float]] | None = None,
 ) -> _Analyzed:
-    """디코딩 → (분리) → (향상) → VAD → 임베딩.
+    """디코딩 → (게이트) → (분리) → (향상) → VAD → 임베딩.
 
     CPU 바운드이므로 워커 스레드에서 실행된다.
 
-    `reference_embedding`이 주어지고 분리가 켜져 있으면, 혼합에서 그 화자에
+    `reference_embeddings`가 주어지고 분리가 켜져 있으면, 혼합에서 그 화자에
     해당하는 출력을 골라 이후 단계에 넘긴다 (Phase 7). 등록 성문이 없으면
     분리해도 어느 출력이 타겟인지 알 수 없으므로 건너뛴다.
+
+    여러 개를 받는 이유는 게이트 때문이다. 타겟 선택에는 하나(가장 최근 것)면
+    충분하지만, 게이트는 **최종 판정과 같은 기준으로 판단해야 한다.** 최종
+    판정은 등록 성문 중 최대 유사도를 쓰므로(02 §6, 다중 등록), 게이트가 최근
+    것 하나만 보면 다른 성문과 잘 맞는 요청까지 분리를 돌리게 된다.
     """
     decoded = audio_svc.decode(
         raw,
@@ -128,21 +133,66 @@ def _analyze(
                 spoof_score=spoof_result.spoof_score,
             )
 
-    if settings.separation_enabled and reference_embedding is not None:
-        # 분리를 가장 앞에 둔다. 겹친 화자를 먼저 떼어내야 이후의 향상·VAD·임베딩이
-        # 단일 화자를 대상으로 동작한다.
-        def _embed_source(source):
-            return embedding_svc.extract(
-                source,
-                model_name=settings.embedding_model,
-                cache_dir=settings.model_cache_dir,
-                backend=settings.embedding_backend,
-                onnx_threads=settings.onnx_intra_op_threads,
-            ).vector
+    def _embed_source(source):
+        return embedding_svc.extract(
+            source,
+            model_name=settings.embedding_model,
+            cache_dir=settings.model_cache_dir,
+            backend=settings.embedding_backend,
+            onnx_threads=settings.onnx_intra_op_threads,
+        ).vector
 
+    def _prepare_and_embed(signal):
+        """향상 → VAD → 임베딩. 최종 판정 경로와 게이트 판정에 같은 처리를 쓴다."""
+        prepared = signal
+        if settings.enhance_enabled:
+            # VAD 앞에 둔다. 소음을 먼저 걷어내야 VAD가 발화 구간을 더 정확히 잡는다.
+            prepared = enhance_svc.apply(prepared, decoded.sample_rate)
+        vad = vad_svc.apply(
+            prepared,
+            decoded.sample_rate,
+            threshold=settings.vad_threshold,
+            min_silence_ms=settings.vad_min_silence_ms,
+            speech_pad_ms=settings.vad_speech_pad_ms,
+            min_speech_sec=settings.min_speech_sec,
+        )
+        return vad, embedding_svc.extract(
+            vad.samples,
+            model_name=settings.embedding_model,
+            cache_dir=settings.model_cache_dir,
+            backend=settings.embedding_backend,
+            onnx_threads=settings.onnx_intra_op_threads,
+        )
+
+    # 게이트에서 만든 결과를 재사용하기 위한 자리. 분리를 건너뛰면 이 값이 그대로
+    # 최종 판정에 쓰이므로, 건너뛰는 경로에는 추가 비용이 없다.
+    gated: tuple | None = None
+    references = reference_embeddings or []
+    separate = settings.separation_enabled and bool(references)
+
+    if separate and settings.separation_gate_score is not None:
+        # 분리의 목적은 혼합에서 타겟을 되찾는 것이다. 원본이 이미 등록 화자와
+        # 충분히 닮았다면 되찾을 것이 없으므로, 7초짜리 분리와 그것이 남기는
+        # 아티팩트를 모두 피한다.
+        probe_vad, probe_emb = _prepare_and_embed(samples)
+        gate_score = max(
+            scoring.cosine_similarity(probe_emb.vector, ref) for ref in references
+        )
+        if gate_score >= settings.separation_gate_score:
+            separate = False
+            gated = (probe_vad, probe_emb)
+        separation_info = SeparationInfo(
+            applied=separate,
+            gate_score=round(gate_score, 6),
+            gate_threshold=settings.separation_gate_score,
+        )
+
+    if separate:
+        # 분리를 앞에 둔다. 겹친 화자를 먼저 떼어내야 이후의 향상·VAD·임베딩이
+        # 단일 화자를 대상으로 동작한다.
         result = separation_svc.extract_target(
             samples,
-            reference_embedding,
+            references[0],
             embed_fn=_embed_source,
             model_name=settings.separation_model,
             cache_dir=settings.model_cache_dir,
@@ -161,31 +211,15 @@ def _analyze(
             )
         separation_info = SeparationInfo(
             applied=True,
+            gate_score=separation_info.gate_score if separation_info else None,
+            gate_threshold=separation_info.gate_threshold if separation_info else None,
             source_count=result.source_count,
             target_index=result.target_index,
             target_similarity=round(result.target_similarity, 6),
             selection_margin=round(margin, 6) if margin is not None else None,
         )
 
-    if settings.enhance_enabled:
-        # VAD 앞에 둔다. 소음을 먼저 걷어내야 VAD가 발화 구간을 더 정확히 잡는다.
-        samples = enhance_svc.apply(samples, decoded.sample_rate)
-
-    vad_result = vad_svc.apply(
-        samples,
-        decoded.sample_rate,
-        threshold=settings.vad_threshold,
-        min_silence_ms=settings.vad_min_silence_ms,
-        speech_pad_ms=settings.vad_speech_pad_ms,
-        min_speech_sec=settings.min_speech_sec,
-    )
-    emb = embedding_svc.extract(
-        vad_result.samples,
-        model_name=settings.embedding_model,
-        cache_dir=settings.model_cache_dir,
-        backend=settings.embedding_backend,
-        onnx_threads=settings.onnx_intra_op_threads,
-    )
+    vad_result, emb = gated if gated is not None else _prepare_and_embed(samples)
     return _Analyzed(
         audio=AudioInfo(
             duration_sec=round(vad_result.total_duration_sec, 3),
@@ -238,6 +272,9 @@ async def health(
         asnorm_active=cohort is not None,
         cohort_size=cohort.size if cohort else 0,
         separation_active=settings.separation_enabled and separation_svc.is_loaded(),
+        # 게이트가 켜졌는지 운영자가 볼 수 있어야 한다. 분리가 "켜져 있다"는
+        # 표시만으로는 요청 대부분이 건너뛰고 있는 상태를 구분할 수 없다.
+        separation_gate=settings.separation_gate_score,
         antispoof_active=settings.antispoof_enabled and antispoof_svc.is_loaded(),
         enhance_active=settings.enhance_enabled and enhance_svc.is_loaded(),
         embedding_backend=settings.embedding_backend,
@@ -397,13 +434,14 @@ async def verify(
             user_id=user_id,
         )
 
-    # 분리 시 타겟 선택 기준으로 쓸 등록 성문. 여러 개면 가장 최근 것을 쓴다
-    # (list_active_enrollments가 최신순으로 반환한다).
-    reference = usable[0].embedding if settings.separation_enabled else None
+    # 분리 시 타겟 선택 기준으로 쓸 등록 성문. 타겟 선택에는 가장 최근 것을
+    # 쓰고(list_active_enrollments가 최신순), 게이트는 전체를 본다 — 최종 판정이
+    # 최대 유사도 기준이므로 게이트도 같은 기준이어야 한다.
+    references = [e.embedding for e in usable] if settings.separation_enabled else None
 
     try:
         analyzed = await _run_inference(
-            _analyze, raw, settings, reference_embedding=reference
+            _analyze, raw, settings, reference_embeddings=references
         )
     except AudioRejected as exc:
         outcome = (
@@ -441,6 +479,14 @@ async def verify(
         threshold=result.threshold,
         model=probe.model,
         speech_duration_sec=analyzed.speech_duration_sec,
+        # 게이트 임계값은 배포 환경마다 다시 정해야 한다. 실제 요청에서 분리를
+        # 얼마나 건너뛰었는지가 남아야 그 근거가 생긴다.
+        separation_applied=(
+            analyzed.separation.applied if analyzed.separation else None
+        ),
+        separation_gate_score=(
+            analyzed.separation.gate_score if analyzed.separation else None
+        ),
     )
     logger.info(
         "성문 검증: user_id=%s verified=%s method=%s cosine=%.4f normalized=%s",

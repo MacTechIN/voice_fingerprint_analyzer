@@ -52,6 +52,7 @@ VG_DATABASE_URL="postgresql://voiceguard:voiceguard@127.0.0.1:54321/voiceguard" 
 | `calibrate.py` | 원시 코사인 vs AS-Norm 비교, 임계값 산출 |
 | `seed_cohort.py` | 임포스터 코호트 DB 적재 |
 | `noise_eval.py` | 음성 향상(DeepFilterNet) 효과를 SNR별로 측정 |
+| `separation_gate_eval.py` | 분리 게이트 임계값 캘리브레이션 — 임계값별 EER과 분리 호출률 |
 
 ### 백엔드별 캐시 분리
 
